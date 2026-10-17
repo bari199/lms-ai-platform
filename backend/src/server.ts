@@ -2,7 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import { checkDatabaseConnection, pool } from "./config/db.js";
 import { checkRedisConnection, redis } from "./config/redis.js";
-
+import authRoutes from "./modules/auth/auth.routes.js";
 dotenv.config();
 
 const app = express();
@@ -15,6 +15,8 @@ app.get("/health", (_req, res) => {
     message: "LMS-AI backend is running",
   });
 });
+
+app.use("/api/v1/auth", authRoutes);
 
 const PORT = Number(process.env.PORT) || 5000;
 
