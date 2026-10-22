@@ -8,6 +8,8 @@ import {
   createLectureController,
   uploadLectureVideoController,
   enrollInCourseController,
+  reviewCourseController,
+  getMyEnrollmentsController,
 } from "./courses.controller.js";
 
 import { videoUpload } from "../../middleware/upload.middleware.js";
@@ -60,6 +62,20 @@ router.post(
   authenticateToken,
   requireRole("student"),
   enrollInCourseController,
+);
+
+router.post(
+  "/:id/approve",
+  authenticateToken,
+  requireRole("admin"),
+  reviewCourseController,
+);
+
+router.get(
+  "/enrollments/me",
+  authenticateToken,
+  requireRole("student"),
+  getMyEnrollmentsController,
 );
 
 export default router;

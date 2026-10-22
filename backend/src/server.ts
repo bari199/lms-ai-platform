@@ -4,6 +4,8 @@ import { checkDatabaseConnection, pool } from "./config/db.js";
 import { checkRedisConnection, redis } from "./config/redis.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import courseRoutes from "./modules/courses/courses.routes.js";
+import enrollmentRoutes from "./modules/courses/enrollment.routes.js";
+import progressRoutes from "./modules/courses/progress.routes.js";
 
 dotenv.config();
 
@@ -20,6 +22,8 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/courses", courseRoutes);
+app.use("/api/v1/enrollments", enrollmentRoutes);
+app.use("/api/v1/lectures", progressRoutes);
 
 const PORT = Number(process.env.PORT) || 5000;
 

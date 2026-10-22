@@ -45,3 +45,28 @@ export async function enrollStudent(studentId: string, courseId: string) {
     enrollment: enrollmentResult.rows[0],
   };
 }
+
+export async function getMyEnrollments(studentId: string) {
+  const result = await pool.query(
+    `SELECT
+       e.id AS enrollment_id,
+       e.student_id,
+       e.course_id,
+       e.enrolled_at,
+       e.progress_percentage,
+       e.completed_at,
+       c.title,
+       c.description,
+       c.category,
+       c.difficulty,
+       c.thumbnail_url,
+       c.price
+     FROM enrollments e
+     JOIN courses c ON c.id = e.course_id
+     WHERE e.student_id = $1
+     ORDER BY e.enrolled_at DESC`,
+    [studentId],
+  );
+
+  return result.rows;
+}

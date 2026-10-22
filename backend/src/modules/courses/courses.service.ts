@@ -238,8 +238,6 @@ export const updateCourse = async (
   return result.rows[0] ?? null;
 };
 
-
-
 interface CreateModuleInput {
   title: string;
   order_index: number;
@@ -272,7 +270,6 @@ export const createCourseModule = async (
 
   return result.rows[0] ?? null;
 };
-
 
 interface CreateLectureInput {
   title: string;
@@ -337,3 +334,18 @@ export const createModuleLecture = async (
 
   return result.rows[0] ?? null;
 };
+
+export async function reviewCourse(
+  courseId: string,
+  decision: "approved" | "rejected",
+) {
+  const result = await pool.query(
+    `UPDATE courses
+     SET status = $2
+     WHERE id = $1 AND status = 'pending'
+     RETURNING id, title, status, instructor_id`,
+    [courseId, decision],
+  );
+
+  return result.rows[0] ?? null;
+}

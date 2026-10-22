@@ -6,9 +6,11 @@ import {
   getCourseById,
   updateCourse,
   createModuleLecture,
+  reviewCourse,
 } from "./courses.service.js";
+import { updateLectureProgress } from "./progress.service.js";
 
-import { enrollStudent } from "./enrollment.service.js";
+import { enrollStudent, getMyEnrollments } from "./enrollment.service.js";
 import { uploadLectureVideo } from "./courses.storage.js";
 import { pool } from "../../config/db.js";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware.js";
@@ -404,6 +406,135 @@ export async function enrollInCourseController(
 
     return res.status(500).json({
       message: "Failed to enroll in course",
+    });
+  }
+}
+
+export async function reviewCourseController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const courseId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+    const decision = req.body?.decision;
+
+    if (!courseId) {
+      return res.status(400).json({
+        message: "Course ID is required",
+      });
+    }
+
+    if (decision !== "approved" && decision !== "rejected") {
+      return res.status(400).json({
+        message: 'Decision must be "approved" or "rejected"',
+      });
+    }
+
+    const course = await reviewCourse(courseId, decision);
+
+    if (!course) {
+      return res.status(404).json({
+        message: "Pending course not found",
+      });
+    }
+
+    return res.status(200).json({
+      message: `Course ${decision} successfully`,
+      course,
+    });
+  } catch (error) {
+    console.error("Course review error:", error);
+
+    return res.status(500).json({
+      message: "Failed to review course",
+    });
+  }
+}
+
+export async function getMyEnrollmentsController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const studentId = req.user?.id;
+
+    if (!studentId) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
+    const enrollments = await getMyEnrollments(studentId);
+
+    return res.status(200).json({
+      count: enrollments.length,
+      enrollments,
+    });
+  } catch (error) {
+    console.error("Get my enrollments error:", error);
+
+    return res.status(500).json({
+      message: "Failed to fetch enrollments",
+    });
+  }
+}
+
+export async function updateLectureProgressController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const studentId = req.user?.id;
+    const lectureId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+    const { watched_seconds, is_completed } = req.body ?? {};
+
+    if (!studentId) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
+    if (!lectureId) {
+      return res.status(400).json({
+        message: "Lecture ID is required",
+      });
+    }
+
+    if (
+      !Number.isInteger(watched_seconds) ||
+      watched_seconds < 0 ||
+      typeof is_completed !== "boolean"
+    ) {
+      return res.status(400).json({
+        message:
+          "watched_seconds must be a non-negative integer and is_completed must be a boolean",
+      });
+    }
+
+    const progress = await updateLectureProgress(studentId, lectureId, {
+      watched_seconds,
+      is_completed,
+    });
+
+    if (!progress) {
+      return res.status(404).json({
+        message: "Lecture not found or course enrollment required",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Lecture progress updated successfully",
+      progress,
+    });
+  } catch (error) {
+    console.error("Update lecture progress error:", error);
+
+    return res.status(500).json({
+      message: "Failed to update lecture progress",
     });
   }
 }
