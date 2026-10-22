@@ -8,6 +8,7 @@ import {
   createModuleLecture,
   reviewCourse,
 } from "./courses.service.js";
+import { createLectureNote } from "./notes.service.js";
 import { updateLectureProgress } from "./progress.service.js";
 
 import { enrollStudent, getMyEnrollments } from "./enrollment.service.js";
@@ -535,6 +536,78 @@ export async function updateLectureProgressController(
 
     return res.status(500).json({
       message: "Failed to update lecture progress",
+    });
+  }
+}
+
+export async function createLectureNoteController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const studentId = req.user?.id;
+    const lectureId = req.params.id;
+    const { timestamp_seconds, content } = req.body;
+
+    if (!studentId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (
+      typeof lectureId !== "string" ||
+      typeof content !== "string" ||
+      !Number.isInteger(timestamp_seconds) ||
+      timestamp_seconds < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid lecture ID, timestamp_seconds and content are required",
+      });
+    }
+
+    const note = await createLectureNote({
+      studentId,
+      lectureId,
+      timestampSeconds: timestamp_seconds,
+      content,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Lecture note created successfully",
+      data: note,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to create lecture note";
+
+    if (
+      message === "Note content is required" ||
+      message === "Timestamp must be a non-negative integer"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message,
+      });
+    }
+
+    if (
+      message === "Lecture not found or you are not enrolled in this course"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message,
+      });
+    }
+
+    console.error("Create lecture note error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
     });
   }
 }

@@ -6,6 +6,7 @@ import authRoutes from "./modules/auth/auth.routes.js";
 import courseRoutes from "./modules/courses/courses.routes.js";
 import enrollmentRoutes from "./modules/courses/enrollment.routes.js";
 import progressRoutes from "./modules/courses/progress.routes.js";
+import notesRoutes from "./modules/courses/notes.routes.js";
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/courses", courseRoutes);
 app.use("/api/v1/enrollments", enrollmentRoutes);
 app.use("/api/v1/lectures", progressRoutes);
+app.use("/api/v1/lectures", notesRoutes);
 
 const PORT = Number(process.env.PORT) || 5000;
 
