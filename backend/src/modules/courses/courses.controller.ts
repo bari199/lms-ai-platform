@@ -1,0 +1,409 @@
+import type { Request, Response } from "express";
+import {
+  getPublishedCourses,
+  createCourse,
+  createCourseModule,
+  getCourseById,
+  updateCourse,
+  createModuleLecture,
+} from "./courses.service.js";
+
+import { enrollStudent } from "./enrollment.service.js";
+import { uploadLectureVideo } from "./courses.storage.js";
+import { pool } from "../../config/db.js";
+import type { AuthenticatedRequest } from "../../middleware/auth.middleware.js";
+
+export const listCourses = async (req: Request, res: Response) => {
+  try {
+    const result = await getPublishedCourses({
+      category:
+        typeof req.query.category === "string" ? req.query.category : undefined,
+      difficulty:
+        typeof req.query.difficulty === "string"
+          ? req.query.difficulty
+          : undefined,
+      q: typeof req.query.q === "string" ? req.query.q : undefined,
+      page: typeof req.query.page === "string" ? req.query.page : undefined,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("Course catalog error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch courses",
+    });
+  }
+};
+
+export const createCourseController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const course = await createCourse(req.user.id, req.body ?? {});
+
+    return res.status(201).json({
+      success: true,
+      message: "Course submitted for approval",
+      data: course,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Course creation failed";
+
+    return res.status(400).json({
+      success: false,
+      message,
+    });
+  }
+};
+
+export const getCourseDetails = async (req: Request, res: Response) => {
+  try {
+    const courseId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: "Course ID is required",
+      });
+    }
+
+    const course = await getCourseById(courseId);
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: "Course not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: course,
+    });
+  } catch (error) {
+    console.error("Course details error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch course details",
+    });
+  }
+};
+
+export const updateCourseController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const courseId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: "Course ID is required",
+      });
+    }
+
+    const course = await updateCourse(courseId, req.user.id, req.body ?? {});
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: "Course not found or you are not the owner",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Course updated successfully",
+      data: course,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Course update failed";
+
+    return res.status(400).json({
+      success: false,
+      message,
+    });
+  }
+};
+
+export const createModuleController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const { title, order_index } = req.body ?? {};
+    const courseId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: "Course ID is required",
+      });
+    }
+
+    const module = await createCourseModule(courseId, req.user.id, {
+      title,
+      order_index,
+    });
+
+    if (!module) {
+      return res.status(404).json({
+        success: false,
+        message: "Course not found or you are not the owner",
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Module created successfully",
+      data: module,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Module creation failed";
+
+    return res.status(400).json({
+      success: false,
+      message,
+    });
+  }
+};
+
+export const createLectureController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const {
+      title,
+      video_url,
+      transcript,
+      duration_seconds,
+      order_index,
+      resource_urls,
+    } = req.body ?? {};
+
+    const moduleId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!moduleId) {
+      return res.status(400).json({
+        success: false,
+        message: "Module ID is required",
+      });
+    }
+
+    const lecture = await createModuleLecture(moduleId, req.user.id, {
+      title,
+      video_url,
+      transcript,
+      duration_seconds,
+      order_index,
+      resource_urls,
+    });
+
+    if (!lecture) {
+      return res.status(404).json({
+        success: false,
+        message: "Module not found or you are not the course owner",
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Lecture created successfully",
+      data: lecture,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Lecture creation failed";
+
+    return res.status(400).json({
+      success: false,
+      message,
+    });
+  }
+};
+
+export const uploadLectureVideoController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const moduleId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    const file = req.file;
+
+    if (!moduleId || !file) {
+      return res.status(400).json({
+        success: false,
+        message: "Module ID and video file are required",
+      });
+    }
+
+    const { title, transcript, duration_seconds, order_index, resource_urls } =
+      req.body ?? {};
+
+    if (
+      typeof title !== "string" ||
+      !title.trim() ||
+      !Number.isInteger(Number(order_index)) ||
+      Number(order_index) < 1
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A lecture title and positive order_index are required",
+      });
+    }
+
+    const lecture = await createModuleLecture(moduleId, req.user.id, {
+      title: title.trim(),
+      order_index: Number(order_index),
+      transcript,
+      duration_seconds:
+        duration_seconds === undefined || duration_seconds === ""
+          ? undefined
+          : Number(duration_seconds),
+      resource_urls:
+        typeof resource_urls === "string"
+          ? JSON.parse(resource_urls)
+          : resource_urls,
+    });
+
+    if (!lecture) {
+      return res.status(404).json({
+        success: false,
+        message: "Module not found or you are not the course owner",
+      });
+    }
+
+    const videoKey = await uploadLectureVideo(lecture.id, file);
+
+    const result = await pool.query(
+      `UPDATE lectures
+       SET video_url = $1
+       WHERE id = $2 AND module_id = $3
+       RETURNING id, module_id, title, video_url,
+                 duration_seconds, order_index, resource_urls`,
+      [videoKey, lecture.id, moduleId],
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Lecture created and video uploaded successfully",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Lecture video upload error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create lecture or upload video",
+    });
+  }
+};
+
+export async function enrollInCourseController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const studentId = req.user?.id;
+    const courseId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!studentId) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
+    if (!courseId) {
+      return res.status(400).json({
+        message: "Course ID is required",
+      });
+    }
+
+    const result = await enrollStudent(studentId, courseId);
+
+    if ("error" in result) {
+      if (result.error === "COURSE_NOT_FOUND") {
+        return res.status(404).json({
+          message: "Course not found",
+        });
+      }
+
+      return res.status(400).json({
+        message: "Course is not available for enrollment",
+      });
+    }
+
+    return res.status(200).json({
+      message: result.alreadyEnrolled
+        ? "You are already enrolled in this course"
+        : "Successfully enrolled in course",
+      ...result,
+    });
+  } catch (error) {
+    console.error("Course enrollment error:", error);
+
+    return res.status(500).json({
+      message: "Failed to enroll in course",
+    });
+  }
+}
