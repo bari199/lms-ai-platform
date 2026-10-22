@@ -10,7 +10,7 @@ import {
 } from "./courses.service.js";
 import { createLectureNote } from "./notes.service.js";
 import { updateLectureProgress } from "./progress.service.js";
-
+import { createLectureBookmark } from "./bookmarks.service.js";
 import { enrollStudent, getMyEnrollments } from "./enrollment.service.js";
 import { uploadLectureVideo } from "./courses.storage.js";
 import { pool } from "../../config/db.js";
@@ -604,6 +604,67 @@ export async function createLectureNoteController(
     }
 
     console.error("Create lecture note error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+}
+
+export async function createLectureBookmarkController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const userId = req.user?.id;
+    const lectureId = req.params.id;
+    const { timestamp_seconds } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (
+      typeof lectureId !== "string" ||
+      !Number.isInteger(timestamp_seconds) ||
+      timestamp_seconds < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "A valid lecture ID and non-negative timestamp_seconds are required",
+      });
+    }
+
+    const bookmark = await createLectureBookmark({
+      userId,
+      lectureId,
+      timestampSeconds: timestamp_seconds,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Lecture bookmark created successfully",
+      data: bookmark,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to create bookmark";
+
+    if (
+      message === "Lecture not found or you are not enrolled in this course"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message,
+      });
+    }
+
+    console.error("Create lecture bookmark error:", error);
 
     return res.status(500).json({
       success: false,
