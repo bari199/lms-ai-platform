@@ -11,6 +11,7 @@ import {
   reviewCourseController,
   getMyEnrollmentsController,
 } from "./courses.controller.js";
+import { createAssignmentController } from "./assignments.controller.js";
 
 import { videoUpload } from "../../middleware/upload.middleware.js";
 
@@ -76,6 +77,13 @@ router.get(
   authenticateToken,
   requireRole("student"),
   getMyEnrollmentsController,
+);
+
+router.post(
+  "/:id/assignments",
+  authenticateToken,
+  requireRole("instructor"),
+  createAssignmentController,
 );
 
 export default router;
