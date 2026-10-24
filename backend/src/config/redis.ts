@@ -21,3 +21,12 @@ export const checkRedisConnection = async (): Promise<void> => {
 
   console.log("Redis connected:", result);
 };
+
+export const createQueueRedisConnection = (): Redis =>
+  new Redis({
+    host: process.env.REDIS_HOST || "localhost",
+    port: Number(process.env.REDIS_PORT) || 6379,
+    maxRetriesPerRequest: null,
+  });
+
+  

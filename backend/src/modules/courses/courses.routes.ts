@@ -10,32 +10,43 @@ import {
   enrollInCourseController,
   reviewCourseController,
   getMyEnrollmentsController,
+  getCourseRecommendationsController,
 } from "./courses.controller.js";
+
 import { createAssignmentController } from "./assignments.controller.js";
-
 import { videoUpload } from "../../middleware/upload.middleware.js";
-
 import { authenticateToken } from "../../middleware/auth.middleware.js";
 import { requireRole } from "../../middleware/role.middleware.js";
 
 const router = Router();
 
+// Public course listing
 router.get("/", listCourses);
+
+// Student routes — static paths before /:id
+router.get(
+  "/recommendations",
+  authenticateToken,
+  requireRole("student"),
+  getCourseRecommendationsController,
+);
+
+router.get(
+  "/enrollments/me",
+  authenticateToken,
+  requireRole("student"),
+  getMyEnrollmentsController,
+);
+
+// Course creation
 router.post(
   "/",
   authenticateToken,
   requireRole("instructor"),
   createCourseController,
 );
-router.get("/:id", getCourseDetails);
 
-router.put(
-  "/:id",
-  authenticateToken,
-  requireRole("instructor"),
-  updateCourseController,
-);
-
+// Module and lecture routes
 router.post(
   "/:id/modules",
   authenticateToken,
@@ -58,6 +69,15 @@ router.post(
   uploadLectureVideoController,
 );
 
+// Assignment creation
+router.post(
+  "/:id/assignments",
+  authenticateToken,
+  requireRole("instructor"),
+  createAssignmentController,
+);
+
+// Enrollment
 router.post(
   "/:id/enroll",
   authenticateToken,
@@ -65,6 +85,7 @@ router.post(
   enrollInCourseController,
 );
 
+// Course approval
 router.post(
   "/:id/approve",
   authenticateToken,
@@ -72,18 +93,15 @@ router.post(
   reviewCourseController,
 );
 
-router.get(
-  "/enrollments/me",
-  authenticateToken,
-  requireRole("student"),
-  getMyEnrollmentsController,
-);
+// Course details — keep after static GET routes
+router.get("/:id", getCourseDetails);
 
-router.post(
-  "/:id/assignments",
+// Course update
+router.put(
+  "/:id",
   authenticateToken,
   requireRole("instructor"),
-  createAssignmentController,
+  updateCourseController,
 );
 
 export default router;

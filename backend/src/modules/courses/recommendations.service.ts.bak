@@ -1,0 +1,49 @@
+import { pool } from "../../config/db.js";
+
+export const getCourseRecommendations = async (studentId: string) => {
+  const result = await pool.query(
+    `WITH latest_quiz_attempts AS (
+       SELECT DISTINCT ON (qa.quiz_id)
+         qa.quiz_id,
+         qa.score,
+         qa.submitted_at
+       FROM quiz_attempts qa
+       WHERE qa.user_id = $1
+         AND qa.submitted_at IS NOT NULL
+         AND qa.score IS NOT NULL
+       ORDER BY qa.quiz_id, qa.submitted_at DESC
+     ),
+     performance AS (
+       SELECT
+         c.category,
+         c.difficulty,
+         AVG(lqa.score)::numeric(5,2) AS average_score
+       FROM latest_quiz_attempts lqa
+       JOIN quizzes q ON q.id = lqa.quiz_id
+       JOIN modules m ON m.id = q.module_id
+       JOIN courses c ON c.id = m.course_id
+       GROUP BY c.category, c.difficulty
+     )
+     SELECT
+       c.id,
+       c.title,
+       c.description,
+       c.category,
+       c.difficulty,
+       c.thumbnail_url,
+       c.price
+     FROM courses c
+     WHERE c.status = 'approved'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM enrollments e
+         WHERE e.course_id = c.id
+           AND e.student_id = $1
+       )
+     ORDER BY c.created_at DESC
+     LIMIT 5`,
+    [studentId],
+  );
+
+  return result.rows;
+};

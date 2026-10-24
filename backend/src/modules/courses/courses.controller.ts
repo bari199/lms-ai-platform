@@ -8,6 +8,8 @@ import {
   createModuleLecture,
   reviewCourse,
 } from "./courses.service.js";
+import { updateStreak } from "../gamification/streaks.service.js";
+import { awardBadge } from "../gamification/badges.service.js";
 import { createLectureNote } from "./notes.service.js";
 import { updateLectureProgress } from "./progress.service.js";
 import { createLectureBookmark } from "./bookmarks.service.js";
@@ -15,6 +17,7 @@ import { enrollStudent, getMyEnrollments } from "./enrollment.service.js";
 import { uploadLectureVideo } from "./courses.storage.js";
 import { pool } from "../../config/db.js";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware.js";
+import { getCourseRecommendations } from "./recommendations.service.js";
 
 export const listCourses = async (req: Request, res: Response) => {
   try {
@@ -170,6 +173,7 @@ export const createModuleController = async (
     }
 
     const { title, order_index } = req.body ?? {};
+
     const courseId = Array.isArray(req.params.id)
       ? req.params.id[0]
       : req.params.id;
@@ -366,6 +370,7 @@ export async function enrollInCourseController(
 ) {
   try {
     const studentId = req.user?.id;
+
     const courseId = Array.isArray(req.params.id)
       ? req.params.id[0]
       : req.params.id;
@@ -419,6 +424,7 @@ export async function reviewCourseController(
     const courseId = Array.isArray(req.params.id)
       ? req.params.id[0]
       : req.params.id;
+
     const decision = req.body?.decision;
 
     if (!courseId) {
@@ -488,9 +494,11 @@ export async function updateLectureProgressController(
 ) {
   try {
     const studentId = req.user?.id;
+
     const lectureId = Array.isArray(req.params.id)
       ? req.params.id[0]
       : req.params.id;
+
     const { watched_seconds, is_completed } = req.body ?? {};
 
     if (!studentId) {
@@ -525,6 +533,14 @@ export async function updateLectureProgressController(
       return res.status(404).json({
         message: "Lecture not found or course enrollment required",
       });
+    }
+
+    // Step 20: Update the student's learning streak.
+    const streak = await updateStreak(studentId);
+
+    // Award the badge when the student reaches a 7-day streak.
+    if (streak.current_streak >= 7) {
+      await awardBadge(studentId, "7-Day Streak");
     }
 
     return res.status(200).json({
@@ -672,3 +688,34 @@ export async function createLectureBookmarkController(
     });
   }
 }
+
+export const getCourseRecommendationsController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const studentId = req.user?.id;
+
+    if (!studentId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const recommendations = await getCourseRecommendations(studentId);
+
+    return res.status(200).json({
+      success: true,
+      count: recommendations.length,
+      data: recommendations,
+    });
+  } catch (error) {
+    console.error("Course recommendations error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch course recommendations",
+    });
+  }
+};
