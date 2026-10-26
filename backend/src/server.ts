@@ -14,12 +14,22 @@ import bookmarksRoutes from "./modules/courses/bookmarks.routes.js";
 import assignmentsRoutes from "./modules/courses/assignments.routes.js";
 import quizRoutes from "./modules/courses/quizzes.routes.js";
 import gamificationRoutes from "./modules/gamification/gamification.routes.js";
+import aiRoutes from "./modules/ai/ai.routes.js";
+import adminRoutes from "./modules/admin/admin.routes.js";
+import paymentRoutes from "./modules/payments/payments.routes.js";
+import { handleStripeWebhook } from "./modules/payments/payments.webhook.js";
 
 import { recommendationWorker } from "./jobs/recommendation.worker.js";
 
-dotenv.config();
+dotenv.config({ path: "../.env" });
 
 const app = express();
+
+app.post(
+  "/api/v1/payments/webhook",
+  express.raw({ type: "application/json" }),
+  handleStripeWebhook,
+);
 
 app.use(express.json());
 
@@ -32,6 +42,7 @@ app.get("/health", (_req, res) => {
 
 // API routes
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/courses", courseRoutes);
 app.use("/api/v1/enrollments", enrollmentRoutes);
 app.use("/api/v1/lectures", progressRoutes);
@@ -40,6 +51,8 @@ app.use("/api/v1/lectures", bookmarksRoutes);
 app.use("/api/v1/assignments", assignmentsRoutes);
 app.use("/api/v1/quizzes", quizRoutes);
 app.use("/api/v1/gamification", gamificationRoutes);
+app.use("/api/v1/ai", aiRoutes);
+app.use("/api/v1/payments", paymentRoutes);
 
 const PORT = Number(process.env.PORT) || 5000;
 

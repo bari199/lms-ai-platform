@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { pool } from "../config/db.js";
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -8,12 +9,13 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-export const authenticateToken = (
+export const authenticateToken = async (
   req: Request,
   res: Response,
   next: NextFunction,
-): void => {
+): Promise<void> => {
   const authHeader = req.headers.authorization;
+
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice(7)
     : undefined;
@@ -52,6 +54,21 @@ export const authenticateToken = (
       return;
     }
 
+    // Check whether the user account is active.
+    const userResult = await pool.query(
+      "SELECT is_active FROM users WHERE id = $1",
+      [payload.sub],
+    );
+
+    if (userResult.rowCount === 0 || !userResult.rows[0].is_active) {
+      res.status(403).json({
+        success: false,
+        message: "Account is suspended or unavailable",
+      });
+      return;
+    }
+
+    // Set authenticated user only after the database check.
     (req as AuthenticatedRequest).user = {
       id: payload.sub,
       roles: payload.roles,
