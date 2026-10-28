@@ -168,3 +168,28 @@ export async function getCertificatePdf(
   };
 }
 
+
+export async function getLectureProgress(studentId: string, lectureId: string) {
+  const result = await pool.query(
+    `SELECT
+       lp.id,
+       lp.student_id,
+       lp.lecture_id,
+       lp.watched_seconds,
+       lp.is_completed,
+       lp.updated_at
+     FROM lecture_progress lp
+     JOIN lectures l ON l.id = lp.lecture_id
+     JOIN modules m ON m.id = l.module_id
+     JOIN courses c ON c.id = m.course_id
+     JOIN enrollments e ON e.course_id = c.id
+     WHERE lp.student_id = $1
+       AND lp.lecture_id = $2
+       AND e.student_id = $1
+       AND c.status = 'approved'
+     LIMIT 1`,
+    [studentId, lectureId],
+  );
+
+  return result.rows[0] ?? null;
+}

@@ -1,10 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
-
 import { checkDatabaseConnection, pool } from "./config/db.js";
-
 import { checkRedisConnection, redis } from "./config/redis.js";
-
 import authRoutes from "./modules/auth/auth.routes.js";
 import courseRoutes from "./modules/courses/courses.routes.js";
 import enrollmentRoutes from "./modules/courses/enrollment.routes.js";
@@ -18,12 +15,24 @@ import aiRoutes from "./modules/ai/ai.routes.js";
 import adminRoutes from "./modules/admin/admin.routes.js";
 import paymentRoutes from "./modules/payments/payments.routes.js";
 import { handleStripeWebhook } from "./modules/payments/payments.webhook.js";
-
 import { recommendationWorker } from "./jobs/recommendation.worker.js";
+import cookieParser from "cookie-parser";
+import cors from "cors";
 
 dotenv.config({ path: "../.env" });
 
 const app = express();
+
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+
+app.use(cookieParser());
 
 app.post(
   "/api/v1/payments/webhook",

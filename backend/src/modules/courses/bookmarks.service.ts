@@ -43,3 +43,27 @@ export async function createLectureBookmark({
 
   return result.rows[0];
 }
+
+export async function getLectureBookmarks(userId: string, lectureId: string) {
+  const result = await pool.query(
+    `SELECT
+       b.id,
+       b.user_id,
+       b.lecture_id,
+       b.timestamp_seconds,
+       b.created_at
+     FROM bookmarks b
+     JOIN lectures l ON l.id = b.lecture_id
+     JOIN modules m ON m.id = l.module_id
+     JOIN courses c ON c.id = m.course_id
+     JOIN enrollments e ON e.course_id = c.id
+     WHERE b.user_id = $1
+       AND b.lecture_id = $2
+       AND e.student_id = $1
+       AND c.status = 'approved'
+     ORDER BY b.timestamp_seconds ASC, b.created_at ASC`,
+    [userId, lectureId],
+  );
+
+  return result.rows;
+}

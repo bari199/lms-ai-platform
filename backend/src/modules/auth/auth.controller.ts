@@ -8,62 +8,68 @@ import {
 } from "./auth.service.js";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware.js";
 
-export const register = async (req: Request, res: Response) => {
+export async function register(req: Request, res: Response): Promise<Response> {
   try {
-    const user = await registerUser(req.body);
+    const { name, email, password, role } = req.body ?? {};
+
+    const result = await registerUser({
+      fullName: name,
+      email,
+      password,
+      role,
+    });
 
     return res.status(201).json({
       success: true,
       message: "Registration successful",
-      data: user,
+      data: result,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : "Registration failed";
 
-    const status =
-      message === "Email is already registered"
-        ? 409
-        : message === "Default student role is not configured"
-          ? 500
-          : 400;
-
-    return res.status(status).json({
+    return res.status(400).json({
       success: false,
       message,
     });
   }
-};
+}
 
-export const login = async (req: Request, res: Response) => {
+export async function login(req: Request, res: Response): Promise<Response> {
   try {
     const { email, password } = req.body ?? {};
 
     const result = await loginUser(email, password);
 
+    res.cookie("refreshToken", result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/api/v1/auth",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    const { refreshToken: _refreshToken, ...safeResult } = result;
+
     return res.status(200).json({
       success: true,
       message: "Login successful",
-      data: result,
+      data: safeResult,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Login failed";
 
-    const status =
-      message === "Invalid email or password"
-        ? 401
-        : message === "JWT access secret is not configured"
-          ? 500
-          : 400;
-
-    return res.status(status).json({
+    return res.status(401).json({
       success: false,
       message,
     });
   }
-};
+}
 
-export const getMe = async (req: AuthenticatedRequest, res: Response) => {
+export async function getMe(
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<Response> {
   try {
     if (!req.user) {
       return res.status(401).json({
@@ -72,33 +78,32 @@ export const getMe = async (req: AuthenticatedRequest, res: Response) => {
       });
     }
 
-    const user = await getCurrentUser(req.user.id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
+    const userId = req.user.id;
+    const user = await getCurrentUser(userId);
 
     return res.status(200).json({
       success: true,
+      message: "Authenticated user",
       data: user,
     });
-  } catch {
-    return res.status(500).json({
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Could not fetch user";
+
+    return res.status(400).json({
       success: false,
-      message: "Failed to fetch profile",
+      message,
     });
   }
-};
+}
 
-export const refresh = async (req: Request, res: Response) => {
+export async function refresh(req: Request, res: Response): Promise<Response> {
   try {
-    const { refreshToken } = req.body ?? {};
+    // Step 8: Read refresh token from the HTTP-only cookie.
+    const refreshToken = req.cookies?.refreshToken;
 
     if (typeof refreshToken !== "string" || !refreshToken) {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
         message: "Refresh token is required",
       });
@@ -108,25 +113,24 @@ export const refresh = async (req: Request, res: Response) => {
 
     return res.status(200).json({
       success: true,
+      message: "Token refreshed successfully",
       data: result,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : "Token refresh failed";
 
-    const status =
-      message === "JWT access secret is not configured" ? 500 : 401;
-
-    return res.status(status).json({
+    return res.status(401).json({
       success: false,
       message,
     });
   }
-};
+}
 
-export const logout = async (req: Request, res: Response) => {
+export async function logout(req: Request, res: Response): Promise<Response> {
   try {
-    const { refreshToken } = req.body ?? {};
+    // Logout still reads the refresh token from the request body in this step.
+    const refreshToken = req.cookies?.refreshToken;
 
     if (typeof refreshToken !== "string" || !refreshToken) {
       return res.status(400).json({
@@ -135,23 +139,25 @@ export const logout = async (req: Request, res: Response) => {
       });
     }
 
-    const revoked = await logoutUser(refreshToken);
+    await logoutUser(refreshToken);
 
-    if (!revoked) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid or already revoked refresh token",
-      });
-    }
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/api/v1/auth",
+    });
 
     return res.status(200).json({
       success: true,
       message: "Logout successful",
     });
-  } catch {
-    return res.status(500).json({
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Logout failed";
+
+    return res.status(400).json({
       success: false,
-      message: "Logout failed",
+      message,
     });
   }
-};
+}

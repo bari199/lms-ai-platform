@@ -4,20 +4,32 @@ import {
   createCourse,
   createCourseModule,
   getCourseById,
+  getInstructorCourseById,
   updateCourse,
   createModuleLecture,
   reviewCourse,
+  getInstructorCourses,
+  updateCourseModule,
+  deleteCourseModule,
 } from "./courses.service.js";
+import { deleteLectureVideo } from "./courses.storage.js";
 import { updateStreak } from "../gamification/streaks.service.js";
 import { awardBadge } from "../gamification/badges.service.js";
-import { createLectureNote } from "./notes.service.js";
-import { updateLectureProgress } from "./progress.service.js";
-import { createLectureBookmark } from "./bookmarks.service.js";
+import { createLectureNote, getLectureNotes } from "./notes.service.js";
+import {
+  updateLectureProgress,
+  getLectureProgress,
+} from "./progress.service.js";
+import {
+  createLectureBookmark,
+  getLectureBookmarks,
+} from "./bookmarks.service.js";
 import { enrollStudent, getMyEnrollments } from "./enrollment.service.js";
 import { uploadLectureVideo } from "./courses.storage.js";
 import { pool } from "../../config/db.js";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware.js";
 import { getCourseRecommendations } from "./recommendations.service.js";
+import { uploadCourseThumbnail } from "./courses.storage.js";
 
 export const listCourses = async (req: Request, res: Response) => {
   try {
@@ -46,6 +58,36 @@ export const listCourses = async (req: Request, res: Response) => {
   }
 };
 
+// export const createCourseController = async (
+//   req: AuthenticatedRequest,
+//   res: Response,
+// ) => {
+//   try {
+//     if (!req.user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Authentication required",
+//       });
+//     }
+
+//     const course = await createCourse(req.user.id, req.body ?? {});
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "Course submitted for approval",
+//       data: course,
+//     });
+//   } catch (error) {
+//     const message =
+//       error instanceof Error ? error.message : "Course creation failed";
+
+//     return res.status(400).json({
+//       success: false,
+//       message,
+//     });
+//   }
+// };
+
 export const createCourseController = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -58,16 +100,55 @@ export const createCourseController = async (
       });
     }
 
-    const course = await createCourse(req.user.id, req.body ?? {});
+    const userId = req.user.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const price = Number(req.body.price ?? 0);
+
+    if (!Number.isFinite(price) || price < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Course price must be a non-negative number",
+      });
+    }
+
+    const course = await createCourse(userId, {
+      ...req.body,
+      price,
+    });
+
+    let thumbnailUrl: string | undefined;
+
+    if (req.file) {
+      thumbnailUrl = await uploadCourseThumbnail(course.id, req.file);
+
+      const updatedCourse = await updateCourse(course.id, userId, {
+        thumbnail_url: thumbnailUrl,
+      });
+
+      if (!updatedCourse) {
+        throw new Error("Failed to save course thumbnail");
+      }
+
+      return res.status(201).json({
+        success: true,
+        data: updatedCourse,
+      });
+    }
 
     return res.status(201).json({
       success: true,
-      message: "Course submitted for approval",
       data: course,
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Course creation failed";
+      error instanceof Error ? error.message : "Failed to create course";
 
     return res.status(400).json({
       success: false,
@@ -716,6 +797,329 @@ export const getCourseRecommendationsController = async (
     return res.status(500).json({
       success: false,
       message: "Failed to fetch course recommendations",
+    });
+  }
+};
+
+export async function getLectureProgressController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const studentId = req.user?.id;
+    const lectureId = req.params.id;
+
+    if (!studentId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (typeof lectureId !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Valid lecture ID is required",
+      });
+    }
+
+    const progress = await getLectureProgress(studentId, lectureId);
+
+    return res.status(200).json({
+      success: true,
+      data: progress,
+    });
+  } catch (error) {
+    console.error("Get lecture progress error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch lecture progress",
+    });
+  }
+}
+
+export async function getLectureNotesController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const studentId = req.user?.id;
+    const lectureId = req.params.id;
+
+    if (!studentId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (typeof lectureId !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Valid lecture ID is required",
+      });
+    }
+
+    const notes = await getLectureNotes(studentId, lectureId);
+
+    return res.status(200).json({
+      success: true,
+      data: notes,
+    });
+  } catch (error) {
+    console.error("Get lecture notes error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch lecture notes",
+    });
+  }
+}
+
+export async function getLectureBookmarksController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const userId = req.user?.id;
+    const lectureId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (typeof lectureId !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Valid lecture ID is required",
+      });
+    }
+
+    const bookmarks = await getLectureBookmarks(userId, lectureId);
+
+    return res.status(200).json({
+      success: true,
+      data: bookmarks,
+    });
+  } catch (error) {
+    console.error("Get lecture bookmarks error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch lecture bookmarks",
+    });
+  }
+}
+
+export const getInstructorCourseDetails = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const courseId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: "Course ID is required",
+      });
+    }
+
+    const course = await getInstructorCourseById(courseId, req.user.id);
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: "Course not found or you are not the owner",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: course,
+    });
+  } catch (error) {
+    console.error("Instructor course details error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch instructor course details",
+    });
+  }
+};
+
+export const getInstructorCoursesController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const courses = await getInstructorCourses(req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      data: courses,
+    });
+  } catch (error) {
+    console.error("Get instructor courses error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch instructor courses",
+    });
+  }
+};
+
+export const updateModuleController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const moduleId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!moduleId) {
+      return res.status(400).json({
+        success: false,
+        message: "Module ID is required",
+      });
+    }
+
+    const { title, order_index } = req.body ?? {};
+
+    const updatedModule = await updateCourseModule(moduleId, req.user.id, {
+      title,
+      order_index,
+    });
+
+    if (!updatedModule) {
+      return res.status(404).json({
+        success: false,
+        message: "Module not found or you are not the course owner",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Module updated successfully",
+      data: updatedModule,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Module update failed";
+
+    return res.status(400).json({
+      success: false,
+      message,
+    });
+  }
+};
+
+export const deleteModuleController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const moduleId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!moduleId) {
+      return res.status(400).json({
+        success: false,
+        message: "Module ID is required",
+      });
+    }
+
+    const result = await deleteCourseModule(moduleId, req.user.id);
+
+    if (result.status === "not_found") {
+      return res.status(404).json({
+        success: false,
+        message: "Module not found or you are not the course owner",
+      });
+    }
+
+    if (result.status === "has_quizzes") {
+      return res.status(409).json({
+        success: false,
+        message: "Cannot delete this module because quizzes are linked to it",
+      });
+    }
+
+    if (result.status === "has_bookmarks") {
+      return res.status(409).json({
+        success: false,
+        message: "Cannot delete this module because lecture bookmarks exist",
+      });
+    }
+
+    //MINIO clean
+
+    const cleanupResults = await Promise.allSettled(
+      result.videos
+        .filter((video): video is typeof video & { video_url: string } =>
+          Boolean(video.video_url),
+        )
+        .map((video) => deleteLectureVideo(video.video_url)),
+    );
+
+    const failedCleanupCount = cleanupResults.filter(
+      (item) => item.status === "rejected",
+    ).length;
+
+    if (failedCleanupCount > 0) {
+      console.error(
+        `Module ${moduleId} deleted, but ${failedCleanupCount} video object(s) could not be removed from MinIO.`,
+        cleanupResults.filter((item) => item.status === "rejected"),
+      );
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Module deleted successfully",
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Module deletion failed";
+
+    return res.status(500).json({
+      success: false,
+      message,
     });
   }
 };

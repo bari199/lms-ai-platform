@@ -50,3 +50,29 @@ export async function createLectureNote({
 
   return result.rows[0];
 }
+
+export async function getLectureNotes(studentId: string, lectureId: string) {
+  const result = await pool.query(
+    `SELECT
+       n.id,
+       n.student_id,
+       n.lecture_id,
+       n.timestamp_seconds,
+       n.content,
+       n.created_at,
+       n.updated_at
+     FROM lecture_notes n
+     JOIN lectures l ON l.id = n.lecture_id
+     JOIN modules m ON m.id = l.module_id
+     JOIN courses c ON c.id = m.course_id
+     JOIN enrollments e ON e.course_id = c.id
+     WHERE n.student_id = $1
+       AND n.lecture_id = $2
+       AND e.student_id = $1
+       AND c.status = 'approved'
+     ORDER BY n.timestamp_seconds ASC, n.created_at ASC`,
+    [studentId, lectureId],
+  );
+
+  return result.rows;
+}

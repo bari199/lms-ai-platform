@@ -3,22 +3,31 @@ import { pool } from "../../config/db.js";
 import jwt from "jsonwebtoken";
 import { createHash, randomBytes } from "node:crypto";
 
+type RegisterRole = "student" | "instructor";
+
 interface RegisterInput {
   fullName: string;
   email: string;
   password: string;
+  role?: RegisterRole;
 }
 
 export const registerUser = async (input: RegisterInput) => {
   const fullName = input.fullName.trim();
   const email = input.email.trim().toLowerCase();
+  const password = input.password;
+  const role = input.role ?? "student";
 
-  if (!fullName || !email || !input.password) {
+  if (!fullName || !email || !password) {
     throw new Error("Full name, email, and password are required");
   }
 
-  if (input.password.length < 8) {
+  if (password.length < 8) {
     throw new Error("Password must be at least 8 characters");
+  }
+
+  if (role !== "student" && role !== "instructor") {
+    throw new Error("Invalid registration role");
   }
 
   const existingUser = await pool.query(
@@ -30,8 +39,7 @@ export const registerUser = async (input: RegisterInput) => {
     throw new Error("Email is already registered");
   }
 
-  const passwordHash = await bcrypt.hash(input.password, 12);
-
+  const passwordHash = await bcrypt.hash(password, 12);
   const client = await pool.connect();
 
   try {
@@ -46,21 +54,25 @@ export const registerUser = async (input: RegisterInput) => {
 
     const roleResult = await client.query(
       "SELECT id FROM roles WHERE name = $1",
-      ["student"],
+      [role],
     );
 
     if (roleResult.rowCount !== 1) {
-      throw new Error("Default student role is not configured");
+      throw new Error(`Role "${role}" is not configured`);
     }
 
     await client.query(
-      "INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)",
+      `INSERT INTO user_roles (user_id, role_id)
+       VALUES ($1, $2)`,
       [userResult.rows[0].id, roleResult.rows[0].id],
     );
 
     await client.query("COMMIT");
 
-    return userResult.rows[0];
+    return {
+      ...userResult.rows[0],
+      roles: [role],
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

@@ -1,4 +1,8 @@
 import { pool } from "../../config/db.js";
+import {
+  getLectureVideoUrl,
+  getCourseThumbnailUrl,
+} from "./courses.storage.js";
 
 interface CourseFilters {
   category?: string;
@@ -22,7 +26,7 @@ export const getPublishedCourses = async (filters: CourseFilters) => {
 
   if (filters.difficulty?.trim()) {
     values.push(filters.difficulty.trim());
-    conditions.push(`difficulty = $${values.length}`);
+    conditions.push(`LOWER(difficulty) = LOWER($${values.length})`);
   }
 
   if (filters.q?.trim()) {
@@ -55,7 +59,14 @@ export const getPublishedCourses = async (filters: CourseFilters) => {
   );
 
   return {
-    courses: coursesResult.rows,
+    courses: await Promise.all(
+      coursesResult.rows.map(async (course) => ({
+        ...course,
+        thumbnail_url: course.thumbnail_url
+          ? await getCourseThumbnailUrl(course.thumbnail_url)
+          : null,
+      })),
+    ),
     pagination: {
       page,
       limit,
@@ -156,7 +167,14 @@ export const getCourseById = async (courseId: string) => {
       [moduleIds],
     );
 
-    lectures = lecturesResult.rows;
+    lectures = await Promise.all(
+      lecturesResult.rows.map(async (lecture) => ({
+        ...lecture,
+        video_url: lecture.video_url
+          ? await getLectureVideoUrl(lecture.video_url)
+          : null,
+      })),
+    );
   }
 
   const modules = modulesResult.rows.map((module) => ({
@@ -263,7 +281,9 @@ export const createCourseModule = async (
     `INSERT INTO modules (course_id, title, order_index)
      SELECT id, $3, $4
      FROM courses
-     WHERE id = $1 AND instructor_id = $2
+      WHERE id = $1
+      AND instructor_id = $2
+      AND status = 'approved'
      RETURNING id, course_id, title, order_index`,
     [courseId, instructorId, title, orderIndex],
   );
@@ -317,7 +337,9 @@ export const createModuleLecture = async (
      SELECT m.id, $3, $4, $5, $6, $7, $8
      FROM modules m
      JOIN courses c ON c.id = m.course_id
-     WHERE m.id = $1 AND c.instructor_id = $2
+     WHERE m.id = $1
+      AND c.instructor_id = $2
+      AND c.status = 'approved'
      RETURNING id, module_id, title, video_url, transcript,
                duration_seconds, order_index, resource_urls`,
     [
@@ -330,6 +352,58 @@ export const createModuleLecture = async (
       input.order_index,
       input.resource_urls ?? null,
     ],
+  );
+
+  return result.rows[0] ?? null;
+};
+
+interface UpdateCourseModuleInput {
+  title?: string;
+  order_index?: number;
+}
+
+export const updateCourseModule = async (
+  moduleId: string,
+  instructorId: string,
+  input: UpdateCourseModuleInput,
+) => {
+  const updates: string[] = [];
+  const values: unknown[] = [];
+
+  if (input.title !== undefined) {
+    if (typeof input.title !== "string" || !input.title.trim()) {
+      throw new Error("Module title cannot be empty");
+    }
+
+    values.push(input.title.trim());
+    updates.push(`title = $${values.length}`);
+  }
+
+  if (input.order_index !== undefined) {
+    if (!Number.isInteger(input.order_index) || input.order_index < 1) {
+      throw new Error("Module order_index must be a positive integer");
+    }
+
+    values.push(input.order_index);
+    updates.push(`order_index = $${values.length}`);
+  }
+
+  if (updates.length === 0) {
+    throw new Error("At least one field is required to update");
+  }
+
+  values.push(moduleId, instructorId);
+
+  const result = await pool.query(
+    `UPDATE modules AS m
+     SET ${updates.join(", ")}
+     FROM courses AS c
+     WHERE m.id = $${values.length - 1}
+       AND c.id = m.course_id
+       AND c.instructor_id = $${values.length}
+       AND c.status = 'approved'
+     RETURNING m.id, m.course_id, m.title, m.order_index`,
+    values,
   );
 
   return result.rows[0] ?? null;
@@ -349,3 +423,167 @@ export async function reviewCourse(
 
   return result.rows[0] ?? null;
 }
+
+export const getInstructorCourseById = async (
+  courseId: string,
+  instructorId: string,
+) => {
+  const courseResult = await pool.query(
+    `SELECT id, instructor_id, title, description, category,
+            difficulty, thumbnail_url, price, status, created_at
+     FROM courses
+     WHERE id = $1 AND instructor_id = $2`,
+    [courseId, instructorId],
+  );
+
+  if (courseResult.rowCount !== 1) {
+    return null;
+  }
+
+  const course = courseResult.rows[0];
+
+  const modulesResult = await pool.query(
+    `SELECT id, course_id, title, order_index
+     FROM modules
+     WHERE course_id = $1
+     ORDER BY order_index ASC`,
+    [courseId],
+  );
+
+  const moduleIds = modulesResult.rows.map((module) => module.id);
+
+  let lectures: Array<{
+    id: string;
+    module_id: string;
+    title: string;
+    video_url: string | null;
+    duration_seconds: number | null;
+    order_index: number;
+    resource_urls: string[] | null;
+  }> = [];
+
+  if (moduleIds.length > 0) {
+    const lecturesResult = await pool.query(
+      `SELECT id, module_id, title, video_url,
+              duration_seconds, order_index, resource_urls
+       FROM lectures
+       WHERE module_id = ANY($1::uuid[])
+       ORDER BY order_index ASC`,
+      [moduleIds],
+    );
+
+    lectures = await Promise.all(
+      lecturesResult.rows.map(async (lecture) => ({
+        ...lecture,
+        video_url: lecture.video_url
+          ? await getLectureVideoUrl(lecture.video_url)
+          : null,
+      })),
+    );
+  }
+
+  const modules = modulesResult.rows.map((module) => ({
+    ...module,
+    lectures: lectures.filter((lecture) => lecture.module_id === module.id),
+  }));
+
+  return {
+    ...course,
+    modules,
+  };
+};
+
+export const getInstructorCourses = async (instructorId: string) => {
+  const result = await pool.query(
+    `SELECT id, title, description, category, difficulty,
+            thumbnail_url, price, status, created_at
+     FROM courses
+     WHERE instructor_id = $1
+     ORDER BY created_at DESC`,
+    [instructorId],
+  );
+
+  return result.rows;
+};
+
+export const deleteCourseModule = async (
+  moduleId: string,
+  instructorId: string,
+) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const moduleResult = await client.query(
+      `SELECT m.id
+       FROM modules AS m
+       JOIN courses AS c ON c.id = m.course_id
+       WHERE m.id = $1
+         AND c.instructor_id = $2
+         AND c.status = 'approved'
+       FOR UPDATE OF m`,
+      [moduleId, instructorId],
+    );
+
+    if (moduleResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return { status: "not_found" as const };
+    }
+
+    const lectureResult = await client.query(
+      `SELECT l.id, l.video_url
+       FROM lectures AS l
+       WHERE l.module_id = $1`,
+      [moduleId],
+    );
+
+    const lectureIds = lectureResult.rows.map(
+      (lecture: { id: string }) => lecture.id,
+    );
+
+    const quizResult = await client.query(
+      `SELECT id
+       FROM quizzes
+       WHERE module_id = $1
+          OR generated_from_lecture_id = ANY($2::uuid[])
+       LIMIT 1`,
+      [moduleId, lectureIds],
+    );
+
+    if (quizResult.rowCount && quizResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return { status: "has_quizzes" as const };
+    }
+
+    const bookmarkResult = await client.query(
+      `SELECT id
+       FROM bookmarks
+       WHERE lecture_id = ANY($1::uuid[])
+       LIMIT 1`,
+      [lectureIds],
+    );
+
+    if (bookmarkResult.rowCount && bookmarkResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return { status: "has_bookmarks" as const };
+    }
+
+    await client.query(`DELETE FROM modules WHERE id = $1`, [moduleId]);
+
+    await client.query("COMMIT");
+
+    return {
+      status: "deleted" as const,
+      videos: lectureResult.rows as Array<{
+        id: string;
+        video_url: string | null;
+      }>,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};

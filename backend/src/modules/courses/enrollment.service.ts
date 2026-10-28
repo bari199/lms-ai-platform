@@ -1,5 +1,5 @@
 import { pool } from "../../config/db.js";
-
+import { getCourseThumbnailUrl } from "./courses.storage.js";
 export async function enrollStudent(studentId: string, courseId: string) {
   const courseResult = await pool.query(
     `SELECT id, title, status
@@ -68,5 +68,12 @@ export async function getMyEnrollments(studentId: string) {
     [studentId],
   );
 
-  return result.rows;
+  return Promise.all(
+    result.rows.map(async (course) => ({
+      ...course,
+      thumbnail_url: course.thumbnail_url
+        ? await getCourseThumbnailUrl(course.thumbnail_url)
+        : null,
+    })),
+  );
 }
