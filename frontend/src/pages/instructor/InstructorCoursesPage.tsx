@@ -89,6 +89,20 @@ export default function InstructorCoursesPage() {
                 </Link>
               )}
 
+              <Link
+                to={`/instructor/courses/${course.id}/assignments`}
+                className="mt-4 inline-flex rounded-md border px-4 py-2"
+              >
+                Manage Assignments
+              </Link>
+
+              <Link
+                to={`/instructor/courses/${course.id}/quizzes`}
+                className="mt-4 inline-flex rounded-md border px-4 py-2"
+              >
+                Manage Quizzes
+              </Link>
+
               {course.status === "rejected" && (
                 <p className="mt-2 text-destructive">
                   Your course was rejected. Please contact the admin.

@@ -10,7 +10,10 @@ import MyCoursesPage from "../pages/dashboard/MyCoursesPage";
 import LectureLearningPage from "../pages/course-learning/LectureLearningPage";
 import CourseContentManagerPage from "../pages/instructor/CourseContentManagerPage";
 import InstructorCoursesPage from "../pages/instructor/InstructorCoursesPage";
-
+import AssignmentManagementPage from "../pages/instructor/AssignmentManagementPage";
+import InstructorQuizManagementPage from "../pages/instructor/InstructorQuizManagementPage";
+import QuizAttemptPage from "../pages/quizzes/QuizAttemptPage";
+import QuizResultPage from "../pages/quizzes/QuizResultPage";
 export const router = createBrowserRouter([
   {
     path: "/",
@@ -40,7 +43,19 @@ export const router = createBrowserRouter([
     path: "/instructor/courses",
     element: <InstructorCoursesPage />,
   },
+  {
+    path: "/instructor/courses/:id/assignments",
+    element: <AssignmentManagementPage />,
+  },
+  {
+    path: "/instructor/courses/:id/quizzes",
+    element: <InstructorQuizManagementPage />,
+  },
   { path: "/my-courses", element: <MyCoursesPage /> },
+  {
+    path: "/quizzes/:id/attempt",
+    element: <QuizAttemptPage />,
+  },
   {
     path: "/courses/:id/learn",
     element: <LectureLearningPage />,
@@ -48,6 +63,11 @@ export const router = createBrowserRouter([
   {
     path: "/instructor/courses/:id/content",
     element: <CourseContentManagerPage />,
+  },
+
+  {
+    path: "/quizzes/attempts/:attemptId/results",
+    element: <QuizResultPage />,
   },
   { path: "/admin/courses", element: <AdminCoursesPage /> },
 ]);

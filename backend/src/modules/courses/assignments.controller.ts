@@ -13,6 +13,8 @@ import {
   getAssignmentsForStudent,
   gradeAssignment,
   getStudentAssignmentResults,
+  getInstructorAssignments,
+  getInstructorAssignmentSubmissions,
 } from "./assignments.service.js";
 
 export async function getAssignmentsController(
@@ -346,6 +348,100 @@ export async function getStudentAssignmentResultsController(
   } catch (error) {
     console.error("Get assignment results error:", error);
 
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+}
+
+
+export async function getInstructorAssignmentsController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const instructorId = req.user?.id;
+    const courseId = req.params.id;
+
+    if (!instructorId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (typeof courseId !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Valid course ID is required",
+      });
+    }
+
+    const assignments = await getInstructorAssignments(courseId, instructorId);
+
+    return res.status(200).json({
+      success: true,
+      data: assignments,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to retrieve assignments";
+
+    if (message === "Course not found or you do not own this course") {
+      return res.status(403).json({ success: false, message });
+    }
+
+    console.error("Get instructor assignments error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+}
+
+export async function getInstructorAssignmentSubmissionsController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const instructorId = req.user?.id;
+    const assignmentId = req.params.id;
+
+    if (!instructorId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (typeof assignmentId !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Valid assignment ID is required",
+      });
+    }
+
+    const submissions = await getInstructorAssignmentSubmissions(
+      assignmentId,
+      instructorId,
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: submissions,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to retrieve assignment submissions";
+
+    if (message === "Assignment not found or you do not own this course") {
+      return res.status(403).json({ success: false, message });
+    }
+
+    console.error("Get instructor assignment submissions error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",

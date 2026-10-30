@@ -10,6 +10,8 @@ import {
   submitAssignmentController,
   gradeAssignmentController,
   getStudentAssignmentResultsController,
+  getInstructorAssignmentsController,
+  getInstructorAssignmentSubmissionsController,
 } from "./assignments.controller.js";
 
 const router = Router();
@@ -52,6 +54,22 @@ router.get(
   authenticateToken,
   requireRole("student"),
   getStudentAssignmentResultsController,
+);
+
+// Instructor: List assignments for an owned course
+router.get(
+  "/courses/:id",
+  authenticateToken,
+  requireRole("instructor"),
+  getInstructorAssignmentsController,
+);
+
+// Instructor: List submissions for an owned assignment
+router.get(
+  "/:id/submissions",
+  authenticateToken,
+  requireRole("instructor"),
+  getInstructorAssignmentSubmissionsController,
 );
 
 export default router;

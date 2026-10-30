@@ -29,3 +29,30 @@ export const thumbnailUpload = multer({
     }
   },
 });
+
+export const lectureResourceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 20 * 1024 * 1024, // 20 MB
+  },
+  fileFilter: (_req, file, callback) => {
+    const allowedTypes: Record<string, string[]> = {
+      "application/pdf": [".pdf"],
+      "application/vnd.ms-powerpoint": [".ppt"],
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+        [".pptx"],
+    };
+
+    const extension = file.originalname
+      .slice(file.originalname.lastIndexOf("."))
+      .toLowerCase();
+
+    const extensions = allowedTypes[file.mimetype];
+
+    if (extensions?.includes(extension)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Only PDF, PPT, and PPTX files are allowed"));
+    }
+  },
+});

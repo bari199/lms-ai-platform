@@ -110,3 +110,58 @@ export async function getCourseThumbnailUrl(
     expiresIn: 3600,
   });
 }
+
+export async function uploadLectureResource(
+  lectureId: string,
+  file: Express.Multer.File,
+): Promise<string> {
+  const extension = path.extname(file.originalname).toLowerCase();
+
+  const allowedTypes: Record<string, string> = {
+    ".pdf": "application/pdf",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx":
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  };
+
+  const expectedMimeType = allowedTypes[extension];
+
+  if (!expectedMimeType || file.mimetype !== expectedMimeType) {
+    throw new Error("Only valid PDF, PPT, and PPTX files are allowed");
+  }
+
+  const objectKey = `lectures/${lectureId}/resources/${randomUUID()}${extension}`;
+
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: videoBucket,
+      Key: objectKey,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+      ContentLength: file.size,
+    }),
+  );
+
+  return objectKey;
+}
+
+export async function getLectureResourceUrl(
+  objectKey: string,
+): Promise<string> {
+  if (
+    !objectKey.startsWith("lectures/") ||
+    !objectKey.includes("/resources/")
+  ) {
+    throw new Error("Invalid lecture resource object key");
+  }
+
+  const command = new GetObjectCommand({
+    Bucket: videoBucket,
+    Key: objectKey,
+    ResponseContentDisposition: "attachment",
+  });
+
+  return getSignedUrl(s3Client, command, {
+    expiresIn: 300,
+  });
+}

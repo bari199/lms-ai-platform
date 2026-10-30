@@ -13,7 +13,8 @@ export const startQuizAttempt = async (quizId: string, studentId: string) => {
        JOIN courses c ON c.id = m.course_id
        JOIN enrollments e ON e.course_id = c.id
        WHERE q.id = $1
-         AND e.student_id = $2`,
+         AND e.student_id = $2
+         AND q.approval_status = 'approved'`,
       [quizId, studentId],
     );
 
@@ -44,7 +45,8 @@ export const getQuizForStudent = async (quizId: string) => {
   const quizResult = await pool.query(
     `SELECT id, title, module_id
      FROM quizzes
-     WHERE id = $1`,
+     WHERE id = $1
+      AND approval_status = 'approved'`,
     [quizId],
   );
 

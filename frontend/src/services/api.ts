@@ -26,8 +26,11 @@ interface RetryableRequestConfig extends InternalAxiosRequestConfig {
 api.interceptors.request.use((config) => {
   const token = getAccessToken();
 
-  if (token) {
+ if (token) {
+    console.log("Request role-debug token exists:", true);
     config.headers.set("Authorization", `Bearer ${token}`);
+  } else {
+    console.log("Request role-debug token exists:", false);
   }
 
   return config;

@@ -416,3 +416,179 @@ export const getQuizAttemptResultController = async (
     });
   }
 };
+
+export const getInstructorQuizzesController = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  const instructorId = authenticatedReq.user?.id;
+
+  if (!instructorId) {
+    res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         q.id,
+         q.title,
+         q.module_id,
+         q.is_ai_generated,
+         q.approval_status,
+         q.generated_from_lecture_id
+       FROM quizzes q
+       JOIN modules m ON m.id = q.module_id
+       JOIN courses c ON c.id = m.course_id
+       WHERE c.instructor_id = $1
+       ORDER BY q.id DESC`,
+      [instructorId],
+    );
+
+    res.status(200).json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error("Get instructor quizzes failed:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve instructor quizzes",
+    });
+  }
+};
+
+export const updateQuizApprovalController = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  const instructorId = authenticatedReq.user?.id;
+  const quizId = req.params.id;
+
+  if (!instructorId) {
+    res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+    return;
+  }
+
+  if (typeof quizId !== "string" || !quizId) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid quiz ID",
+    });
+    return;
+  }
+
+  const { approval_status } = req.body as {
+    approval_status?: string;
+  };
+
+  if (!["approved", "rejected"].includes(approval_status ?? "")) {
+    res.status(400).json({
+      success: false,
+      message: "approval_status must be approved or rejected",
+    });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE quizzes q
+       SET approval_status = $3
+       FROM modules m
+       JOIN courses c ON c.id = m.course_id
+       WHERE q.module_id = m.id
+         AND q.id = $1
+         AND c.instructor_id = $2
+       RETURNING q.id, q.title, q.approval_status`,
+      [quizId, instructorId, approval_status],
+    );
+
+    if (result.rowCount !== 1) {
+      res.status(404).json({
+        success: false,
+        message: "Quiz not found or not owned by this instructor",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Quiz ${approval_status} successfully`,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Update quiz approval failed:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update quiz approval",
+    });
+  }
+};
+
+export const getStudentCourseQuizzesController = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  const studentId = authenticatedReq.user?.id;
+  const courseId = req.params.courseId;
+
+  if (!studentId) {
+    res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+    return;
+  }
+
+  if (typeof courseId !== "string" || !courseId) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid course ID",
+    });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         q.id,
+         q.title,
+         q.module_id,
+         q.is_ai_generated,
+         q.approval_status
+       FROM quizzes q
+       JOIN modules m ON m.id = q.module_id
+       JOIN courses c ON c.id = m.course_id
+       JOIN enrollments e ON e.course_id = c.id
+       WHERE c.id = $1
+         AND e.student_id = $2
+         AND c.status = 'approved'
+         AND q.approval_status = 'approved'
+       ORDER BY q.id DESC`,
+      [courseId, studentId],
+    );
+
+    res.status(200).json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error("Get student course quizzes failed:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve course quizzes",
+    });
+  }
+};

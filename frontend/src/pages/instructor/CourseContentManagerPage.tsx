@@ -8,6 +8,7 @@ type Lecture = {
   title: string;
   order_index: number;
   video_url?: string | null;
+  resource_urls?: string[];
 };
 
 type Module = {
@@ -69,6 +70,9 @@ export default function CourseContentManagerPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
+  const [selectedLectureId, setSelectedLectureId] = useState("");
+  const [resourceFile, setResourceFile] = useState<File | null>(null);
+
   const lectures = modules.flatMap((module) =>
     (module.lectures ?? []).map((lecture) => ({
       ...lecture,
@@ -76,10 +80,6 @@ export default function CourseContentManagerPage() {
       moduleTitle: module.title,
       moduleOrder: module.order_index,
     })),
-  );
-
-  const selectedModule = modules.find(
-    (module) => module.id === selectedModuleId,
   );
 
   useEffect(() => {
@@ -420,6 +420,99 @@ export default function CourseContentManagerPage() {
       setMessage("Lecture created and video uploaded successfully.");
     } catch (err) {
       setError(getErrorMessage(err, "Failed to upload lecture video."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleResourceFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+
+    clearNotifications();
+
+    if (!file) {
+      setResourceFile(null);
+      return;
+    }
+
+    const allowedExtensions = [".pdf", ".ppt", ".pptx"];
+    const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+
+    if (!allowedExtensions.includes(extension)) {
+      setResourceFile(null);
+      event.target.value = "";
+      setError("Only PDF, PPT, and PPTX files are allowed.");
+      return;
+    }
+
+    if (file.size > 20 * 1024 * 1024) {
+      setResourceFile(null);
+      event.target.value = "";
+      setError("Resource files must be 20 MB or smaller.");
+      return;
+    }
+
+    setResourceFile(file);
+  }
+
+  async function handleUploadResource(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (loading) return;
+
+    if (!selectedLectureId || !resourceFile) {
+      setError("Select a lecture and a resource file.");
+      setMessage("");
+      return;
+    }
+
+    setLoading(true);
+    clearNotifications();
+
+    try {
+      const formData = new FormData();
+      formData.append("file", resourceFile);
+
+      const response = await api.post<ApiResponse<Lecture>>(
+        `/courses/lectures/${selectedLectureId}/resources`,
+        formData,
+      );
+
+      if (!response.data?.success) {
+        throw new Error("Resource upload failed.");
+      }
+
+      const updatedLecture = response.data.data;
+
+      setModules((current) =>
+        current.map((module) => ({
+          ...module,
+          lectures: (module.lectures ?? []).map((lecture) =>
+            lecture.id === selectedLectureId
+              ? {
+                  ...lecture,
+                  resource_urls: updatedLecture?.resource_urls ?? [
+                    ...(lecture.resource_urls ?? []),
+                  ],
+                }
+              : lecture,
+          ),
+        })),
+      );
+
+      setResourceFile(null);
+      setSelectedLectureId("");
+      setMessage("Lecture resource uploaded successfully.");
+
+      const input = document.getElementById(
+        "lecture-resource",
+      ) as HTMLInputElement | null;
+
+      if (input) {
+        input.value = "";
+      }
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to upload lecture resource."));
     } finally {
       setLoading(false);
     }
@@ -771,8 +864,74 @@ export default function CourseContentManagerPage() {
               </form>
             </section>
 
+            <section className="space-y-4 rounded-xl border bg-card p-6">
+              <h2 className="text-xl font-semibold">4. Upload PDF / Slides</h2>
+
+              <form onSubmit={handleUploadResource} className="space-y-4">
+                <div>
+                  <label
+                    htmlFor="resource-lecture"
+                    className="mb-2 block font-medium"
+                  >
+                    Select lecture
+                  </label>
+
+                  <select
+                    id="resource-lecture"
+                    required
+                    value={selectedLectureId}
+                    onChange={(event) =>
+                      setSelectedLectureId(event.target.value)
+                    }
+                    className="w-full rounded-lg border bg-background px-3 py-2"
+                  >
+                    <option value="">Choose a lecture</option>
+
+                    {lectures.map((lecture) => (
+                      <option key={lecture.id} value={lecture.id}>
+                        {lecture.moduleTitle} — {lecture.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="lecture-resource"
+                    className="mb-2 block font-medium"
+                  >
+                    PDF or PowerPoint file
+                  </label>
+
+                  <input
+                    id="lecture-resource"
+                    type="file"
+                    accept=".pdf,.ppt,.pptx"
+                    required
+                    onChange={handleResourceFileChange}
+                    className="w-full rounded-lg border bg-background px-3 py-2"
+                  />
+
+                  {resourceFile && (
+                    <p className="mt-2 break-all text-sm text-muted-foreground">
+                      Selected: {resourceFile.name} (
+                      {(resourceFile.size / (1024 * 1024)).toFixed(1)} MB)
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || !selectedLectureId || !resourceFile}
+                  className="w-full rounded-lg bg-primary px-4 py-3 font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  {loading ? "Uploading..." : "Upload Resource"}
+                </button>
+              </form>
+            </section>
+
             <section className="rounded-xl border bg-card p-6">
-              <h2 className="text-xl font-semibold">4. Uploaded Lectures</h2>
+              <h2 className="text-xl font-semibold">5. Uploaded Lectures</h2>
 
               {lectures.length === 0 ? (
                 <p className="mt-3 text-sm text-muted-foreground">
@@ -804,6 +963,12 @@ export default function CourseContentManagerPage() {
                                   {lecture.video_url
                                     ? "Video uploaded"
                                     : "Lecture created"}
+                                </p>
+
+                                <p className="text-sm text-muted-foreground">
+                                  {(lecture.resource_urls?.length ?? 0) > 0
+                                    ? `${lecture.resource_urls!.length} resource file(s) uploaded`
+                                    : "No PDF or slides uploaded"}
                                 </p>
                               </li>
                             ))}

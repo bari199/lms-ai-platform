@@ -212,3 +212,65 @@ export async function getStudentAssignmentResults(studentId: string) {
 
   return result.rows;
 }
+
+export async function getInstructorAssignments(
+  courseId: string,
+  instructorId: string,
+) {
+  const courseResult = await pool.query(
+    `SELECT id
+     FROM courses
+     WHERE id = $1 AND instructor_id = $2
+     LIMIT 1`,
+    [courseId, instructorId],
+  );
+
+  if (courseResult.rowCount === 0) {
+    throw new Error("Course not found or you do not own this course");
+  }
+
+  const result = await pool.query(
+    `SELECT id, course_id, title, instructions, rubric, due_date
+     FROM assignments
+     WHERE course_id = $1
+     ORDER BY due_date ASC NULLS LAST, id ASC`,
+    [courseId],
+  );
+
+  return result.rows;
+}
+
+export async function getInstructorAssignmentSubmissions(
+  assignmentId: string,
+  instructorId: string,
+) {
+  const assignmentResult = await pool.query(
+    `SELECT a.id
+     FROM assignments a
+     JOIN courses c ON c.id = a.course_id
+     WHERE a.id = $1 AND c.instructor_id = $2
+     LIMIT 1`,
+    [assignmentId, instructorId],
+  );
+
+  if (assignmentResult.rowCount === 0) {
+    throw new Error("Assignment not found or you do not own this course");
+  }
+
+  const result = await pool.query(
+    `SELECT
+       s.id,
+       s.assignment_id,
+       s.user_id,
+       s.file_url,
+       s.submitted_at,
+       s.grade,
+       s.feedback
+     FROM assignment_submissions s
+     WHERE s.assignment_id = $1
+     ORDER BY s.submitted_at DESC`,
+    [assignmentId],
+  );
+
+  return result.rows;
+}

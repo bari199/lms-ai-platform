@@ -12,7 +12,12 @@ import {
   updateCourseModule,
   deleteCourseModule,
 } from "./courses.service.js";
-import { deleteLectureVideo } from "./courses.storage.js";
+import {
+  deleteLectureVideo,
+  uploadLectureResource,
+  uploadLectureVideo,
+  getLectureResourceUrl,
+} from "./courses.storage.js";
 import { updateStreak } from "../gamification/streaks.service.js";
 import { awardBadge } from "../gamification/badges.service.js";
 import { createLectureNote, getLectureNotes } from "./notes.service.js";
@@ -25,7 +30,6 @@ import {
   getLectureBookmarks,
 } from "./bookmarks.service.js";
 import { enrollStudent, getMyEnrollments } from "./enrollment.service.js";
-import { uploadLectureVideo } from "./courses.storage.js";
 import { pool } from "../../config/db.js";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware.js";
 import { getCourseRecommendations } from "./recommendations.service.js";
@@ -1120,6 +1124,147 @@ export const deleteModuleController = async (
     return res.status(500).json({
       success: false,
       message,
+    });
+  }
+};
+
+export const uploadLectureResourceController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const instructorId = req.user?.id;
+    const lectureId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+    const file = req.file;
+
+    if (!instructorId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (!lectureId || !file) {
+      return res.status(400).json({
+        success: false,
+        message: "Lecture ID and resource file are required",
+      });
+    }
+
+    // Verify that the lecture belongs to this instructor.
+    const ownership = await pool.query(
+      `SELECT l.id, l.resource_urls
+       FROM lectures l
+       JOIN modules m ON m.id = l.module_id
+       JOIN courses c ON c.id = m.course_id
+       WHERE l.id = $1 AND c.instructor_id = $2
+       LIMIT 1`,
+      [lectureId, instructorId],
+    );
+
+    if (ownership.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lecture not found or you do not own this course",
+      });
+    }
+
+    const objectKey = await uploadLectureResource(lectureId, file);
+    const existingResources: string[] = ownership.rows[0].resource_urls ?? [];
+
+    const updated = await pool.query(
+      `UPDATE lectures
+       SET resource_urls = array_append(
+         COALESCE(resource_urls, ARRAY[]::TEXT[]),
+         $1
+       )
+       WHERE id = $2
+       RETURNING id, module_id, title, resource_urls`,
+      [objectKey, lectureId],
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Lecture resource uploaded successfully",
+      data: {
+        ...updated.rows[0],
+        resource_count: existingResources.length + 1,
+      },
+    });
+  } catch (error) {
+    console.error("Lecture resource upload error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload lecture resource",
+    });
+  }
+};
+
+export const downloadLectureResourceController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const studentId = req.user?.id;
+    const lectureId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+    const resourceKey = req.query.key;
+
+    if (!studentId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (
+      !lectureId ||
+      typeof resourceKey !== "string" ||
+      !resourceKey.startsWith(`lectures/${lectureId}/resources/`)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid lecture ID and resource key are required",
+      });
+    }
+
+    const result = await pool.query(
+      `SELECT l.id
+       FROM lectures l
+       JOIN modules m ON m.id = l.module_id
+       JOIN courses c ON c.id = m.course_id
+       JOIN enrollments e ON e.course_id = c.id
+       WHERE l.id = $1
+         AND $2 = ANY(l.resource_urls)
+         AND e.student_id = $3
+         AND c.status = 'approved'
+       LIMIT 1`,
+      [lectureId, resourceKey, studentId],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(403).json({
+        success: false,
+        message: "Resource not found or you are not enrolled in this course",
+      });
+    }
+
+    const url = await getLectureResourceUrl(resourceKey);
+
+    return res.status(200).json({
+      success: true,
+      data: { url, expires_in: 300 },
+    });
+  } catch (error) {
+    console.error("Lecture resource download error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate resource download URL",
     });
   }
 };

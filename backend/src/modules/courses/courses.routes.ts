@@ -15,10 +15,15 @@ import {
   getInstructorCoursesController,
   updateModuleController,
   deleteModuleController,
+  uploadLectureResourceController,
+  downloadLectureResourceController,
 } from "./courses.controller.js";
 
 import { createAssignmentController } from "./assignments.controller.js";
-import { videoUpload } from "../../middleware/upload.middleware.js";
+import {
+  videoUpload,
+  lectureResourceUpload,
+} from "../../middleware/upload.middleware.js";
 import { authenticateToken } from "../../middleware/auth.middleware.js";
 import { requireRole } from "../../middleware/role.middleware.js";
 import { thumbnailUpload } from "../../middleware/upload.middleware.js";
@@ -136,6 +141,21 @@ router.delete(
   authenticateToken,
   requireRole("instructor"),
   deleteModuleController,
+);
+
+router.post(
+  "/lectures/:id/resources",
+  authenticateToken,
+  requireRole("instructor"),
+  lectureResourceUpload.single("file"),
+  uploadLectureResourceController,
+);
+
+router.get(
+  "/lectures/:id/resources/download",
+  authenticateToken,
+  requireRole("student"),
+  downloadLectureResourceController,
 );
 
 export default router;
