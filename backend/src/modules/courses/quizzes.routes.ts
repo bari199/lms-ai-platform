@@ -8,6 +8,7 @@ import {
   submitQuizAttemptController,
   getQuizAttemptResultController,
   updateQuizApprovalController,
+  deleteQuizController,
 } from "./quizzes.controller.js";
 
 import { authenticateToken } from "../../middleware/auth.middleware.js";
@@ -72,6 +73,13 @@ router.get(
   authenticateToken,
   requireRole("student"),
   getStudentCourseQuizzesController,
+);
+
+router.delete(
+  "/:id",
+  authenticateToken,
+  requireRole("instructor"),
+  deleteQuizController,
 );
 
 export default router;

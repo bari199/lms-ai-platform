@@ -1,15 +1,7 @@
 import { pool } from "../../config/db.js";
+import { s3Client, videoBucket } from "../../config/storage.js";
 import { issueCourseCertificate } from "../gamification/certificates.service.js";
-import {
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
-
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION ?? "us-east-1",
-});
-const videoBucket = process.env.S3_BUCKET_NAME ?? process.env.AWS_S3_BUCKET;
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 
 interface UpdateLectureProgressInput {
   watched_seconds: number;
@@ -114,10 +106,10 @@ export async function updateLectureProgress(
       `UPDATE enrollments
        SET progress_percentage = $3,
            completed_at = CASE
-              WHEN $3::numeric = 100
-                THEN COALESCE(completed_at, now())
-               ELSE NULL
-            END
+             WHEN $3::numeric = 100
+               THEN COALESCE(completed_at, now())
+             ELSE NULL
+           END
        WHERE student_id = $1
          AND course_id = $2`,
       [studentId, courseProgress.course_id, progressPercentage],
@@ -167,7 +159,6 @@ export async function getCertificatePdf(
     filename: `certificate-${certificateId}.pdf`,
   };
 }
-
 
 export async function getLectureProgress(studentId: string, lectureId: string) {
   const result = await pool.query(

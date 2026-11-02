@@ -12,6 +12,7 @@ import {
   getStudentAssignmentResultsController,
   getInstructorAssignmentsController,
   getInstructorAssignmentSubmissionsController,
+  deleteAssignmentController,
 } from "./assignments.controller.js";
 
 const router = Router();
@@ -70,6 +71,13 @@ router.get(
   authenticateToken,
   requireRole("instructor"),
   getInstructorAssignmentSubmissionsController,
+);
+
+router.delete(
+  "/:id",
+  authenticateToken,
+  requireRole("instructor"),
+  deleteAssignmentController,
 );
 
 export default router;

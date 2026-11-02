@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { Link, useNavigate } from "react-router";
-
+import NotificationBell from "@/components/common/NotificationBell";
 import api from "@/services/api";
 import { clearTokens, getAccessToken } from "@/services/tokenStorage";
 import { clearAuth, setUser } from "@/store/authSlice";
 import type { AppDispatch, RootState } from "@/store";
+import CourseRecommendations from "@/pages/dashboard/CourseRecommendations";
 
 type InstructorCourse = {
   id: string;
@@ -129,14 +130,18 @@ export default function DashboardPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-3xl font-bold">Dashboard</h1>
 
-          <button
-            type="button"
-            onClick={handleLogout}
-            disabled={loggingOut}
-            className="rounded-md border px-4 py-2 text-sm disabled:opacity-50"
-          >
-            {loggingOut ? "Signing out..." : "Logout"}
-          </button>
+          <div className="flex items-center gap-3">
+            <NotificationBell />
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="rounded-md border px-4 py-2 text-sm disabled:opacity-50"
+            >
+              {loggingOut ? "Signing out..." : "Logout"}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -212,7 +217,7 @@ export default function DashboardPage() {
             </Link>
           )}
         </section>
-
+        {isStudent && <CourseRecommendations />}
         {isInstructor && (
           <section className="mt-8 rounded-xl border bg-card p-6">
             <h2 className="text-xl font-semibold">My Courses</h2>

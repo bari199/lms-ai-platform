@@ -17,6 +17,7 @@ import {
   deleteModuleController,
   uploadLectureResourceController,
   downloadLectureResourceController,
+  getInstructorCourseAnalyticsController,
 } from "./courses.controller.js";
 
 import { createAssignmentController } from "./assignments.controller.js";
@@ -31,6 +32,13 @@ import { thumbnailUpload } from "../../middleware/upload.middleware.js";
 const router = Router();
 
 // Public course listing
+router.get(
+  "/:id/analytics",
+  authenticateToken,
+  requireRole("instructor"),
+  getInstructorCourseAnalyticsController,
+);
+
 router.get("/", listCourses);
 
 // Student routes — static paths before /:id

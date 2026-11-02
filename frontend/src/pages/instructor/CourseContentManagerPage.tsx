@@ -31,6 +31,32 @@ type CourseContentResponse = {
   };
 };
 
+type CourseAnalytics = {
+  course: {
+    id: string;
+    title: string;
+  };
+  overview: {
+    enrolled_students: number;
+    average_quiz_score: number | null;
+    average_quiz_duration_seconds: number | null;
+    submitted_attempts: number;
+  };
+  lecture_analytics: {
+    lecture_id: string;
+    lecture_title: string;
+    duration_seconds: number | null;
+    started_students: number;
+    completed_students: number;
+    drop_off_rate: number | null;
+  }[];
+};
+
+type CourseAnalyticsResponse = {
+  success: boolean;
+  data: CourseAnalytics;
+};
+
 function getErrorMessage(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error)) {
     return error.response?.data?.message || fallback;
@@ -45,6 +71,34 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 function getNextOrder(items: { order_index: number }[]): number {
   return Math.max(0, ...items.map((item) => item.order_index)) + 1;
+}
+
+function getVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const objectUrl = URL.createObjectURL(file);
+
+    video.preload = "metadata";
+
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      URL.revokeObjectURL(objectUrl);
+
+      if (!Number.isFinite(duration) || duration <= 0) {
+        reject(new Error("Unable to determine video duration."));
+        return;
+      }
+
+      resolve(Math.round(duration));
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Failed to read video metadata."));
+    };
+
+    video.src = objectUrl;
+  });
 }
 
 export default function CourseContentManagerPage() {
@@ -72,6 +126,14 @@ export default function CourseContentManagerPage() {
 
   const [selectedLectureId, setSelectedLectureId] = useState("");
   const [resourceFile, setResourceFile] = useState<File | null>(null);
+
+  const [analytics, setAnalytics] = useState<CourseAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState("");
+
+  const [announcementTitle, setAnnouncementTitle] = useState("");
+  const [announcementMessage, setAnnouncementMessage] = useState("");
+  const [announcementSubmitting, setAnnouncementSubmitting] = useState(false);
 
   const lectures = modules.flatMap((module) =>
     (module.lectures ?? []).map((lecture) => ({
@@ -134,6 +196,50 @@ export default function CourseContentManagerPage() {
     }
 
     void loadCourseContent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId]);
+
+  useEffect(() => {
+    if (!courseId) {
+      setAnalyticsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadAnalytics() {
+      setAnalyticsLoading(true);
+      setAnalyticsError("");
+
+      try {
+        const response = await api.get<CourseAnalyticsResponse>(
+          `/courses/${courseId}/analytics`,
+        );
+
+        if (!response.data?.success) {
+          throw new Error("Failed to load course analytics.");
+        }
+
+        if (!cancelled) {
+          setAnalytics(response.data.data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setAnalyticsError(
+            getErrorMessage(err, "Failed to load course analytics."),
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setAnalyticsLoading(false);
+        }
+      }
+    }
+
+    void loadAnalytics();
 
     return () => {
       cancelled = true;
@@ -372,10 +478,12 @@ export default function CourseContentManagerPage() {
     clearNotifications();
 
     try {
-      const formData = new FormData();
+      const durationSeconds = await getVideoDuration(videoFile);
 
+      const formData = new FormData();
       formData.append("title", title);
       formData.append("order_index", String(order));
+      formData.append("duration_seconds", String(durationSeconds));
       formData.append("video", videoFile);
 
       const response = await api.post<ApiResponse<Lecture>>(
@@ -515,6 +623,40 @@ export default function CourseContentManagerPage() {
       setError(getErrorMessage(err, "Failed to upload lecture resource."));
     } finally {
       setLoading(false);
+    }
+  }
+  async function handleCreateAnnouncement(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    if (!courseId) return;
+
+    if (!announcementTitle.trim() || !announcementMessage.trim()) {
+      setError("Announcement title and message are required.");
+      return;
+    }
+
+    setAnnouncementSubmitting(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await api.post(`/courses/${courseId}/announcements`, {
+        title: announcementTitle.trim(),
+        message: announcementMessage.trim(),
+      });
+
+      if (!response.data?.success) {
+        throw new Error("Failed to publish announcement.");
+      }
+
+      setAnnouncementTitle("");
+      setAnnouncementMessage("");
+
+      setMessage("Announcement published successfully.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to publish announcement."));
+    } finally {
+      setAnnouncementSubmitting(false);
     }
   }
 
@@ -977,6 +1119,223 @@ export default function CourseContentManagerPage() {
                     ))}
                 </div>
               )}
+            </section>
+
+            <section className="space-y-5 rounded-xl border bg-card p-6">
+              <div>
+                <h2 className="text-xl font-semibold">6. Course Analytics</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Track student engagement, lecture completion and quiz
+                  performance.
+                </p>
+              </div>
+
+              {analyticsLoading && (
+                <p className="text-sm text-muted-foreground">
+                  Loading analytics...
+                </p>
+              )}
+
+              {analyticsError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {analyticsError}
+                </p>
+              )}
+
+              {!analyticsLoading && !analyticsError && analytics && (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm text-muted-foreground">
+                        Enrolled Students
+                      </p>
+                      <p className="mt-2 text-2xl font-bold">
+                        {analytics.overview.enrolled_students}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm text-muted-foreground">
+                        Average Quiz Score
+                      </p>
+                      <p className="mt-2 text-2xl font-bold">
+                        {analytics.overview.average_quiz_score !== null
+                          ? `${analytics.overview.average_quiz_score}%`
+                          : "N/A"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm text-muted-foreground">
+                        Average Quiz Duration
+                      </p>
+                      <p className="mt-2 text-2xl font-bold">
+                        {analytics.overview.average_quiz_duration_seconds !==
+                        null
+                          ? `${Math.floor(
+                              analytics.overview.average_quiz_duration_seconds /
+                                60,
+                            )}m ${
+                              analytics.overview.average_quiz_duration_seconds %
+                              60
+                            }s`
+                          : "N/A"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm text-muted-foreground">
+                        Submitted Attempts
+                      </p>
+                      <p className="mt-2 text-2xl font-bold">
+                        {analytics.overview.submitted_attempts}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="mb-3 text-lg font-semibold">
+                      Per-Lecture Drop-off
+                    </h3>
+
+                    {analytics.lecture_analytics.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No lecture analytics available yet.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {analytics.lecture_analytics.map((lecture) => (
+                          <div
+                            key={lecture.lecture_id}
+                            className="rounded-lg border p-4"
+                          >
+                            <h4 className="font-medium">
+                              {lecture.lecture_title}
+                            </h4>
+
+                            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Started
+                                </p>
+                                <p className="font-semibold">
+                                  {lecture.started_students}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Completed
+                                </p>
+                                <p className="font-semibold">
+                                  {lecture.completed_students}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Drop-off Rate
+                                </p>
+                                <p className="font-semibold">
+                                  {lecture.drop_off_rate !== null
+                                    ? `${lecture.drop_off_rate}%`
+                                    : "N/A"}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Lecture Duration
+                                </p>
+                                <p className="font-semibold">
+                                  {lecture.duration_seconds !== null
+                                    ? `${Math.floor(
+                                        lecture.duration_seconds / 60,
+                                      )}m`
+                                    : "N/A"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Note: Lecture drop-off is calculated among students with
+                    recorded progress. Quiz duration is an approximate
+                    time-on-task metric based on submitted attempts.
+                  </p>
+                </>
+              )}
+            </section>
+
+            <section className="space-y-5 rounded-xl border bg-card p-6">
+              <div>
+                <h2 className="text-xl font-semibold">
+                  7. Course Announcements
+                </h2>
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Publish important updates and notify all enrolled students.
+                </p>
+              </div>
+
+              <form onSubmit={handleCreateAnnouncement} className="space-y-4">
+                <div className="space-y-2">
+                  <label
+                    htmlFor="announcement-title"
+                    className="text-sm font-medium"
+                  >
+                    Announcement Title
+                  </label>
+
+                  <input
+                    id="announcement-title"
+                    type="text"
+                    value={announcementTitle}
+                    onChange={(e) => setAnnouncementTitle(e.target.value)}
+                    maxLength={200}
+                    required
+                    placeholder="Example: Week 1 Update"
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="announcement-message"
+                    className="text-sm font-medium"
+                  >
+                    Announcement Message
+                  </label>
+
+                  <textarea
+                    id="announcement-message"
+                    value={announcementMessage}
+                    onChange={(e) => setAnnouncementMessage(e.target.value)}
+                    required
+                    rows={5}
+                    placeholder="Write your announcement for enrolled students..."
+                    className="w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={
+                    announcementSubmitting ||
+                    !announcementTitle.trim() ||
+                    !announcementMessage.trim()
+                  }
+                  className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {announcementSubmitting
+                    ? "Publishing..."
+                    : "Publish Announcement"}
+                </button>
+              </form>
             </section>
           </>
         )}

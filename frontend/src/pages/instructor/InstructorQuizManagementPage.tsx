@@ -66,7 +66,7 @@ export default function InstructorQuizManagementPage() {
     { option_text: "", is_correct: true },
     { option_text: "", is_correct: false },
   ]);
-
+  const [deletingQuizId, setDeletingQuizId] = useState("");
   const [loadingModules, setLoadingModules] = useState(true);
   const [loadingQuizzes, setLoadingQuizzes] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -297,6 +297,35 @@ export default function InstructorQuizManagementPage() {
       setError(getErrorMessage(err, "Failed to update quiz status."));
     } finally {
       setUpdatingQuizId("");
+    }
+  }
+
+  async function handleDeleteQuiz(quizId: string) {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this quiz? This action cannot be undone.",
+    );
+
+    if (!confirmed) return;
+
+    clearNotifications();
+    setDeletingQuizId(quizId);
+
+    try {
+      const response = await api.delete<ApiResponse<null>>(
+        `/quizzes/${quizId}`,
+      );
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || "Quiz deletion failed.");
+      }
+
+      setQuizzes((current) => current.filter((quiz) => quiz.id !== quizId));
+
+      setMessage("Quiz deleted successfully.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to delete quiz."));
+    } finally {
+      setDeletingQuizId("");
     }
   }
 
@@ -616,6 +645,18 @@ export default function InstructorQuizManagementPage() {
                           : "Approved"}
                       </button>
                     )}
+                    <button
+                      type="button"
+                      disabled={
+                        deletingQuizId === quiz.id || updatingQuizId === quiz.id
+                      }
+                      onClick={() => void handleDeleteQuiz(quiz.id)}
+                      className="rounded-lg border border-destructive px-3 py-2 text-sm text-destructive disabled:opacity-50"
+                    >
+                      {deletingQuizId === quiz.id
+                        ? "Deleting..."
+                        : "Delete Quiz"}
+                    </button>
                   </article>
                 );
               })}

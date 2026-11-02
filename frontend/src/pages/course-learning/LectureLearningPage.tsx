@@ -1,77 +1,146 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { Link, useParams } from "react-router";
+
 import api from "@/services/api";
 
+import { connectSocket } from "@/services/socket";
+import { useSelector } from "react-redux";
+import type { RootState } from "@/store";
 interface Lecture {
   id: string;
+
   module_id: string;
+
   title: string;
+
   video_url: string | null;
+
   duration_seconds: number | null;
+
   order_index: number;
+
   resource_urls: string[] | null;
 }
 
 interface CourseModule {
   id: string;
+
   title: string;
+
   order_index: number;
+
   lectures: Lecture[];
 }
 
 interface Course {
   id: string;
+
   title: string;
+
   description: string | null;
+
   modules: CourseModule[];
 }
 
 interface Progress {
   watched_seconds: number;
+
   is_completed: boolean;
 }
 
 interface Note {
   id: string;
+
   timestamp_seconds: number;
+
   content: string;
 }
 
 interface Bookmark {
   id: string;
+
   timestamp_seconds: number;
 }
 
 interface Assignment {
   id: string;
+
   course_id: string;
+
   title: string;
+
   instructions: string | null;
+
   rubric: Record<string, unknown> | null;
+
   due_date: string | null;
 }
 
 interface AssignmentSubmission {
   id: string;
+
   assignment_id: string;
+
   file_url: string;
+
   submitted_at: string;
+
   grade: number | null;
+
   feedback: string | null;
+
   assignment_title: string;
+
   due_date: string | null;
+}
+
+interface Discussion {
+  id: string;
+
+  course_id: string;
+
+  author_id: string;
+
+  author_name?: string;
+
+  parent_id: string | null;
+
+  title: string | null;
+
+  content: string;
+
+  is_pinned: boolean;
+
+  created_at: string;
+
+  updated_at: string;
 }
 
 interface Quiz {
   id: string;
+
   title: string;
+
   module_id: string;
+
   is_ai_generated: boolean;
+
   approval_status: string;
+}
+
+interface Announcement {
+  id: string;
+  course_id: string;
+  instructor_id: string;
+  title: string;
+  message: string;
+  created_at: string;
 }
 
 interface ApiResponse<T> {
   data?: T;
+
   course?: T;
 }
 
@@ -93,53 +162,104 @@ export default function LectureLearningPage() {
   const { id: courseId } = useParams();
 
   const videoRef = useRef<HTMLVideoElement>(null);
+
   const lastSavedSecondRef = useRef(-1);
 
   const [course, setCourse] = useState<Course | null>(null);
+
   const [activeLecture, setActiveLecture] = useState<Lecture | null>(null);
+
   const [progress, setProgress] = useState<Progress | null>(null);
+
   const [notes, setNotes] = useState<Note[]>([]);
+
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+
   const [noteContent, setNoteContent] = useState("");
+
   const [loading, setLoading] = useState(true);
+
   const [saving, setSaving] = useState(false);
+
   const [message, setMessage] = useState("");
+
   const [error, setError] = useState("");
+
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
+
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+
   const [assignmentFiles, setAssignmentFiles] = useState<
     Record<string, File | null>
   >({});
+
   const [submittingAssignmentId, setSubmittingAssignmentId] = useState<
     string | null
   >(null);
+
   const [assignmentMessages, setAssignmentMessages] = useState<
     Record<string, string>
   >({});
+
   const [assignmentResults, setAssignmentResults] = useState<
     AssignmentSubmission[]
   >([]);
+
+  const [discussions, setDiscussions] = useState<Discussion[]>([]);
+
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [announcementsError, setAnnouncementsError] = useState("");
+
+  const [discussionTitle, setDiscussionTitle] = useState("");
+
+  const [discussionContent, setDiscussionContent] = useState("");
+
+  const [discussionLoading, setDiscussionLoading] = useState(false);
+
+  const [discussionMessage, setDiscussionMessage] = useState("");
+
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+
+  const currentUser = useSelector((state: RootState) => state.auth.user);
+
+  const isInstructor = currentUser?.roles.includes("instructor") ?? false;
+
+  const [deletingDiscussionId, setDeletingDiscussionId] = useState<
+    string | null
+  >(null);
+
   const loadLectureData = useCallback(async (lecture: Lecture) => {
     setActiveLecture(lecture);
+
     setProgress(null);
+
     setNotes([]);
+
     setBookmarks([]);
+
     setNoteContent("");
+
     setError("");
+
     setMessage("");
+
     lastSavedSecondRef.current = -1;
 
     try {
       const [progressResponse, notesResponse, bookmarksResponse] =
         await Promise.all([
           api.get(`/lectures/${lecture.id}/progress`),
+
           api.get(`/lectures/${lecture.id}/notes`),
+
           api.get(`/lectures/${lecture.id}/bookmarks`),
         ]);
 
       const progressData = getResponseData<Progress>(progressResponse);
+
       const notesData = getResponseData<Note[]>(notesResponse);
+
       const bookmarksData = getResponseData<Bookmark[]>(bookmarksResponse);
 
       setProgress(
@@ -165,16 +285,139 @@ export default function LectureLearningPage() {
       );
     } catch (err) {
       console.error("Failed to load lecture data:", err);
+
       setError("Could not load saved progress, notes, or bookmarks.");
     }
   }, []);
+
+  // Load the course discussion list when the course changes.
+  useEffect(() => {
+    if (!courseId) return;
+
+    let cancelled = false;
+
+    const loadDiscussions = async () => {
+      setDiscussionLoading(true);
+      setDiscussionMessage("");
+
+      try {
+        const response = await api.get(`/discussions/courses/${courseId}`);
+        const data = getResponseData<Discussion[]>(response);
+
+        if (!cancelled) {
+          setDiscussions(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error("Failed to load discussions:", err);
+        if (!cancelled) {
+          setDiscussionMessage("Could not load discussions.");
+        }
+      } finally {
+        if (!cancelled) {
+          setDiscussionLoading(false);
+        }
+      }
+    };
+
+    void loadDiscussions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId]);
+
+  // Connect to the course room and listen for real-time discussion changes.
+  useEffect(() => {
+    if (!courseId) return;
+
+    let active = true;
+
+    try {
+      const socket = connectSocket();
+
+      const refreshDiscussions = async () => {
+        try {
+          const response = await api.get(`/discussions/courses/${courseId}`);
+          const data = getResponseData<Discussion[]>(response);
+
+          if (active) {
+            setDiscussions(Array.isArray(data) ? data : []);
+          }
+        } catch (err) {
+          console.error("Failed to refresh discussions:", err);
+        }
+      };
+
+      const handleDiscussionChange = (discussion: Discussion) => {
+        if (discussion?.course_id === courseId) {
+          void refreshDiscussions();
+        }
+      };
+
+      const handleDiscussionDelete = (data: { id: string }) => {
+        if (!data?.id) return;
+
+        setDiscussions((previous) =>
+          previous.filter((discussion) => discussion.id !== data.id),
+        );
+        void refreshDiscussions();
+      };
+
+      const joinRoom = () => {
+        if (!active) return;
+
+        socket.emit(
+          "discussion:join",
+          courseId,
+          (result: { success: boolean; message?: string }) => {
+            if (!result.success) {
+              console.error("Discussion room join failed:", result.message);
+            }
+          },
+        );
+      };
+
+      // Register listeners before joining, so no event is missed.
+      socket.on("discussion:created", handleDiscussionChange);
+      socket.on("discussion:replied", handleDiscussionChange);
+      socket.on("discussion:updated", handleDiscussionChange);
+      socket.on("discussion:pinned", handleDiscussionChange);
+      socket.on("discussion:deleted", handleDiscussionDelete);
+      socket.on("connect", joinRoom);
+
+      if (socket.connected) {
+        joinRoom();
+      }
+
+      return () => {
+        active = false;
+        socket.off("connect", joinRoom);
+        socket.off("discussion:created", handleDiscussionChange);
+        socket.off("discussion:replied", handleDiscussionChange);
+        socket.off("discussion:updated", handleDiscussionChange);
+        socket.off("discussion:pinned", handleDiscussionChange);
+        socket.off("discussion:deleted", handleDiscussionDelete);
+
+        if (socket.connected) {
+          socket.emit("discussion:leave", courseId);
+        }
+      };
+    } catch (err) {
+      console.error("Discussion socket connection failed:", err);
+      return () => {
+        active = false;
+      };
+    }
+  }, [courseId]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadCourse() {
       setLoading(true);
+
       setError("");
+
       setMessage("");
 
       try {
@@ -183,6 +426,7 @@ export default function LectureLearningPage() {
         }
 
         const response = await api.get(`/courses/${courseId}`);
+
         const responseBody = response.data;
 
         const courseData = (responseBody?.data ??
@@ -195,15 +439,19 @@ export default function LectureLearningPage() {
 
         const normalizedCourse: Course = {
           ...courseData,
+
           modules: courseData.modules.map((module) => ({
             ...module,
+
             lectures: Array.isArray(module.lectures) ? module.lectures : [],
           })),
         };
 
         // Load assignments and quizzes independently
+
         try {
           const response = await api.get("/assignments");
+
           const assignmentData = getResponseData<Assignment[]>(response);
 
           if (!cancelled) {
@@ -218,8 +466,10 @@ export default function LectureLearningPage() {
         } catch (err) {
           console.error("Failed to load assignments:", err);
         }
+
         try {
           const response = await api.get("/assignments/results/me");
+
           const results = getResponseData<AssignmentSubmission[]>(response);
 
           if (!cancelled) {
@@ -231,6 +481,7 @@ export default function LectureLearningPage() {
 
         try {
           const response = await api.get(`/quizzes/courses/${courseId}`);
+
           const quizData = getResponseData<Quiz[]>(response);
 
           if (!cancelled) {
@@ -245,13 +496,16 @@ export default function LectureLearningPage() {
         setCourse(normalizedCourse);
 
         const firstLecture = normalizedCourse.modules
+
           .flatMap((module) => module.lectures)
+
           .find((lecture) => Boolean(lecture.video_url));
 
         if (firstLecture) {
           await loadLectureData(firstLecture);
         } else {
           setActiveLecture(null);
+
           setMessage("This course does not have a video lecture yet.");
         }
       } catch (err) {
@@ -274,6 +528,74 @@ export default function LectureLearningPage() {
     };
   }, [courseId, loadLectureData]);
 
+  useEffect(() => {
+    if (!courseId) {
+      setAnnouncementsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadAnnouncements() {
+      setAnnouncementsLoading(true);
+      setAnnouncementsError("");
+
+      try {
+        const response = await api.get(`/courses/${courseId}/announcements`);
+
+        const data = getResponseData<Announcement[]>(response);
+
+        if (!cancelled) {
+          setAnnouncements(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        console.error("Failed to load announcements:", error);
+
+        if (!cancelled) {
+          setAnnouncementsError("Could not load course announcements.");
+        }
+      } finally {
+        if (!cancelled) {
+          setAnnouncementsLoading(false);
+        }
+      }
+    }
+
+    void loadAnnouncements();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId]);
+
+  const deleteDiscussion = async (discussionId: string) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this discussion? Its replies will also be deleted.",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeletingDiscussionId(discussionId);
+      setDiscussionMessage("");
+
+      await api.delete(`/discussions/${discussionId}`);
+
+      // Reload discussions to reflect the deletion of the discussion
+      // and all its replies.
+      const response = await api.get(`/discussions/courses/${courseId}`);
+      const data = getResponseData<Discussion[]>(response);
+
+      setDiscussions(Array.isArray(data) ? data : []);
+      setDiscussionMessage("Discussion deleted successfully.");
+    } catch (error) {
+      console.error("Failed to delete discussion:", error);
+      setDiscussionMessage("Could not delete discussion. Please try again.");
+    } finally {
+      setDeletingDiscussionId(null);
+    }
+  };
+
   async function saveProgress(watchedSeconds: number, completed: boolean) {
     if (!activeLecture) return;
 
@@ -282,17 +604,20 @@ export default function LectureLearningPage() {
     try {
       await api.post(`/lectures/${activeLecture.id}/progress`, {
         watched_seconds: safeSeconds,
+
         is_completed: completed,
       });
 
       setProgress((current) => ({
         watched_seconds: Math.max(current?.watched_seconds ?? 0, safeSeconds),
+
         is_completed: completed || Boolean(current?.is_completed),
       }));
 
       setError("");
     } catch (err) {
       console.error("Failed to save lecture progress:", err);
+
       setError("Could not save lecture progress.");
     }
   }
@@ -303,12 +628,15 @@ export default function LectureLearningPage() {
     const timestamp = Math.floor(videoRef.current?.currentTime ?? 0);
 
     setSaving(true);
+
     setError("");
+
     setMessage("");
 
     try {
       const response = await api.post(`/lectures/${activeLecture.id}/notes`, {
         timestamp_seconds: timestamp,
+
         content: noteContent.trim(),
       });
 
@@ -337,9 +665,11 @@ export default function LectureLearningPage() {
       }
 
       setNoteContent("");
+
       setMessage("Note saved.");
     } catch (err) {
       console.error("Failed to save note:", err);
+
       setError("Could not save your note.");
     } finally {
       setSaving(false);
@@ -352,11 +682,13 @@ export default function LectureLearningPage() {
     const timestamp = Math.floor(videoRef.current?.currentTime ?? 0);
 
     setError("");
+
     setMessage("");
 
     try {
       const response = await api.post(
         `/lectures/${activeLecture.id}/bookmarks`,
+
         { timestamp_seconds: timestamp },
       );
 
@@ -387,6 +719,7 @@ export default function LectureLearningPage() {
       setMessage("Bookmark saved.");
     } catch (err) {
       console.error("Failed to save bookmark:", err);
+
       setError("Could not save bookmark.");
     }
   }
@@ -395,12 +728,15 @@ export default function LectureLearningPage() {
     if (downloadingKey) return;
 
     setDownloadingKey(resourceKey);
+
     setError("");
+
     setMessage("");
 
     try {
       const response = await api.get(
         `/courses/lectures/${lectureId}/resources/download`,
+
         {
           params: { key: resourceKey },
         },
@@ -413,23 +749,61 @@ export default function LectureLearningPage() {
       }
 
       const link = document.createElement("a");
+
       link.href = downloadUrl;
+
       link.target = "_blank";
+
       link.rel = "noopener noreferrer";
+
       link.click();
 
       setMessage("Your resource download link is ready.");
     } catch (err) {
       console.error("Resource download failed:", err);
+
       setError("Could not download this resource. Please try again.");
     } finally {
       setDownloadingKey(null);
     }
   }
 
+  async function createDiscussion() {
+    if (!courseId || !discussionTitle.trim() || !discussionContent.trim()) {
+      setDiscussionMessage("Please enter a title and message.");
+      return;
+    }
+
+    setDiscussionLoading(true);
+    setDiscussionMessage("");
+
+    try {
+      await api.post("/discussions", {
+        courseId,
+        title: discussionTitle.trim(),
+        content: discussionContent.trim(),
+      });
+
+      setDiscussionTitle("");
+      setDiscussionContent("");
+      setDiscussionMessage("Discussion posted successfully!");
+
+      const response = await api.get(`/discussions/courses/${courseId}`);
+      const data = getResponseData<Discussion[]>(response);
+      setDiscussions(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to create discussion:", err);
+      setDiscussionMessage("Could not post discussion. Please try again.");
+    } finally {
+      setDiscussionLoading(false);
+    }
+  }
+
   async function submitAssignment(assignmentId: string) {
     const file = assignmentFiles[assignmentId];
+
     const resultsResponse = await api.get("/assignments/results/me");
+
     const results = getResponseData<AssignmentSubmission[]>(resultsResponse);
 
     setAssignmentResults(Array.isArray(results) ? results : []);
@@ -437,8 +811,10 @@ export default function LectureLearningPage() {
     if (!file) {
       setAssignmentMessages((current) => ({
         ...current,
+
         [assignmentId]: "Please select a file first.",
       }));
+
       return;
     }
 
@@ -449,17 +825,22 @@ export default function LectureLearningPage() {
     if (!allowedExtensions.includes(extension)) {
       setAssignmentMessages((current) => ({
         ...current,
+
         [assignmentId]: "File type not supported.",
       }));
+
       return;
     }
 
     const formData = new FormData();
+
     formData.append("file", file);
 
     setSubmittingAssignmentId(assignmentId);
+
     setAssignmentMessages((current) => ({
       ...current,
+
       [assignmentId]: "",
     }));
 
@@ -468,11 +849,13 @@ export default function LectureLearningPage() {
 
       setAssignmentMessages((current) => ({
         ...current,
+
         [assignmentId]: "Assignment submitted successfully!",
       }));
 
       setAssignmentFiles((current) => ({
         ...current,
+
         [assignmentId]: null,
       }));
     } catch (err) {
@@ -480,16 +863,21 @@ export default function LectureLearningPage() {
 
       setAssignmentMessages((current) => ({
         ...current,
+
         [assignmentId]: "Could not submit assignment. Please try again.",
       }));
     } finally {
       setSubmittingAssignmentId(null);
     }
   }
+
   function formatTime(seconds: number) {
     const safeSeconds = Math.max(0, Math.floor(seconds));
+
     const hours = Math.floor(safeSeconds / 3600);
+
     const minutes = Math.floor((safeSeconds % 3600) / 60);
+
     const remainingSeconds = safeSeconds % 60;
 
     if (hours > 0) {
@@ -541,6 +929,48 @@ export default function LectureLearningPage() {
         {course.description && (
           <p className="mb-6 text-muted-foreground">{course.description}</p>
         )}
+        <section className="mb-6 space-y-4 rounded-xl border bg-card p-5">
+          <div>
+            <h2 className="text-xl font-semibold">Course Announcements</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Important updates from your instructor.
+            </p>
+          </div>
+
+          {announcementsLoading ? (
+            <p className="text-sm text-muted-foreground">
+              Loading announcements...
+            </p>
+          ) : announcementsError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {announcementsError}
+            </p>
+          ) : announcements.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No announcements published yet.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {announcements.map((announcement) => (
+                <article
+                  key={announcement.id}
+                  className="rounded-lg border p-4"
+                >
+                  <h3 className="font-semibold">{announcement.title}</h3>
+
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                    {announcement.message}
+                  </p>
+
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Published:{" "}
+                    {new Date(announcement.created_at).toLocaleString()}
+                  </p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         {message && (
           <p role="status" className="mb-4 text-sm">
@@ -571,6 +1001,7 @@ export default function LectureLearningPage() {
                       src={activeLecture.video_url}
                       onLoadedMetadata={(event) => {
                         const video = event.currentTarget;
+
                         const savedSeconds = progress?.watched_seconds ?? 0;
 
                         if (
@@ -583,6 +1014,7 @@ export default function LectureLearningPage() {
                       }}
                       onTimeUpdate={(event) => {
                         const video = event.currentTarget;
+
                         const currentSecond = Math.floor(video.currentTime);
 
                         if (
@@ -591,6 +1023,7 @@ export default function LectureLearningPage() {
                           currentSecond !== lastSavedSecondRef.current
                         ) {
                           lastSavedSecondRef.current = currentSecond;
+
                           void saveProgress(video.currentTime, false);
                         }
                       }}
@@ -676,6 +1109,7 @@ export default function LectureLearningPage() {
                                 onClick={() =>
                                   void downloadResource(
                                     activeLecture.id,
+
                                     resourceKey,
                                   )
                                 }
@@ -810,8 +1244,112 @@ export default function LectureLearningPage() {
           </aside>
         </div>
       </div>
+
+      <div className="mx-auto mt-8 max-w-7xl px-4 md:px-8">
+        <section className="rounded-xl border bg-card p-5">
+          <div className="mb-5">
+            <h2 className="text-xl font-semibold">Course Discussions</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Ask questions and discuss this course with other learners.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={discussionTitle}
+              onChange={(event) => setDiscussionTitle(event.target.value)}
+              placeholder="Discussion title"
+              maxLength={200}
+              className="w-full rounded-lg border bg-background p-3"
+            />
+            <textarea
+              value={discussionContent}
+              onChange={(event) => setDiscussionContent(event.target.value)}
+              placeholder="Write your question or message..."
+              rows={4}
+              className="w-full rounded-lg border bg-background p-3"
+            />
+            <button
+              type="button"
+              onClick={() => void createDiscussion()}
+              disabled={
+                discussionLoading ||
+                !discussionTitle.trim() ||
+                !discussionContent.trim()
+              }
+              className="rounded-lg bg-primary px-5 py-2 text-primary-foreground disabled:opacity-50"
+            >
+              {discussionLoading ? "Please wait..." : "Post Discussion"}
+            </button>
+            {discussionMessage && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {discussionMessage}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-6 space-y-4">
+            {discussionLoading && discussions.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Loading discussions...
+              </p>
+            )}
+            {!discussionLoading && discussions.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No discussions yet. Start the first discussion!
+              </p>
+            )}
+            {discussions.map((discussion) => (
+              <article key={discussion.id} className="rounded-lg border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium">
+                    {discussion.author_name || "Course member"}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {discussion.is_pinned && (
+                      <span className="rounded-full bg-muted px-2 py-1 text-xs">
+                        Pinned
+                      </span>
+                    )}
+
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(discussion.created_at).toLocaleString()}
+                    </span>
+
+                    {(currentUser?.id === discussion.author_id ||
+                      isInstructor) && (
+                      <button
+                        type="button"
+                        onClick={() => deleteDiscussion(discussion.id)}
+                        disabled={deletingDiscussionId === discussion.id}
+                        className="rounded-md px-2 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {deletingDiscussionId === discussion.id
+                          ? "Deleting..."
+                          : "Delete"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {discussion.title && (
+                  <h3 className="mt-3 font-semibold">{discussion.title}</h3>
+                )}
+                <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                  {discussion.content}
+                </p>
+                {discussion.parent_id && (
+                  <p className="mt-2 text-xs text-muted-foreground">Reply</p>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+
       <div className="mt-8 grid gap-6 md:grid-cols-2">
         {/* Assignments */}
+
         <section className="rounded-xl border bg-card p-5">
           <h2 className="text-xl font-semibold">Assignments</h2>
 
@@ -825,6 +1363,7 @@ export default function LectureLearningPage() {
                     {assignment.instructions}
                   </p>
                 )}
+
                 {(() => {
                   const submission = assignmentResults.find(
                     (result) => result.assignment_id === assignment.id,
@@ -858,6 +1397,7 @@ export default function LectureLearningPage() {
                           <p className="text-sm font-medium">
                             Instructor Feedback
                           </p>
+
                           <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
                             {submission.feedback}
                           </p>
@@ -866,6 +1406,7 @@ export default function LectureLearningPage() {
                     </div>
                   );
                 })()}
+
                 <div className="mt-4 space-y-3">
                   <input
                     type="file"
@@ -875,11 +1416,13 @@ export default function LectureLearningPage() {
 
                       setAssignmentFiles((current) => ({
                         ...current,
+
                         [assignment.id]: file,
                       }));
 
                       setAssignmentMessages((current) => ({
                         ...current,
+
                         [assignment.id]: "",
                       }));
                     }}
@@ -922,6 +1465,7 @@ export default function LectureLearningPage() {
         </section>
 
         {/* Quizzes */}
+
         <section className="rounded-xl border bg-card p-5">
           <h2 className="text-xl font-semibold">Quizzes</h2>
 
@@ -935,6 +1479,7 @@ export default function LectureLearningPage() {
                     ? "AI Generated Quiz"
                     : "Instructor Created Quiz"}
                 </p>
+
                 <Link
                   to={`/quizzes/${quiz.id}/attempt`}
                   className="mt-3 inline-block rounded-lg bg-primary px-4 py-2 text-primary-foreground"

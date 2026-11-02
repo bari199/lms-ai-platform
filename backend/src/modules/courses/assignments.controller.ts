@@ -15,6 +15,7 @@ import {
   getStudentAssignmentResults,
   getInstructorAssignments,
   getInstructorAssignmentSubmissions,
+  deleteAssignment,
 } from "./assignments.service.js";
 
 export async function getAssignmentsController(
@@ -355,7 +356,6 @@ export async function getStudentAssignmentResultsController(
   }
 }
 
-
 export async function getInstructorAssignmentsController(
   req: AuthenticatedRequest,
   res: Response,
@@ -445,6 +445,59 @@ export async function getInstructorAssignmentSubmissionsController(
     return res.status(500).json({
       success: false,
       message: "Internal server error",
+    });
+  }
+}
+
+export async function deleteAssignmentController(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const instructorId = req.user?.id;
+    const assignmentId = req.params.id;
+
+    if (!instructorId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (typeof assignmentId !== "string" || !assignmentId) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid assignment ID",
+      });
+    }
+
+    const result = await deleteAssignment(assignmentId, instructorId);
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: "Assignment not found or not owned by this instructor",
+      });
+    }
+
+    if (!result.deleted) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Assignment cannot be deleted because student submissions exist",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Assignment deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete assignment failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete assignment",
     });
   }
 }

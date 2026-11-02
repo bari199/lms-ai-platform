@@ -4,6 +4,7 @@ import { pool } from "../../config/db.js";
 import { updateStreak } from "./streaks.service.js";
 import { awardBadge } from "./badges.service.js";
 import * as certificatesService from "./certificates.service.js";
+import { getCertificatePdf } from "../courses/progress.service.js";
 
 export const getGamificationSummary = async (
   req: AuthenticatedRequest,
@@ -84,7 +85,6 @@ export const recordLearningActivity = async (
   }
 };
 
-
 export const downloadCertificateController = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -103,22 +103,7 @@ export const downloadCertificateController = async (
   }
 
   try {
-    const certificateService = certificatesService as unknown as {
-      getCertificatePdf?: (
-        userId: string,
-        certificateId: string,
-      ) => Promise<{ filename: string; buffer: Buffer } | null>;
-    }; 
-
-    if (!certificateService.getCertificatePdf) {
-      res.status(500).json({ message: "Failed to download certificate" });
-      return;
-    }
-
-    const certificate = await certificateService.getCertificatePdf(
-      userId,
-      certificateId,
-    );
+    const certificate = await getCertificatePdf(userId, certificateId);
 
     if (!certificate) {
       res.status(404).json({ message: "Certificate not found" });

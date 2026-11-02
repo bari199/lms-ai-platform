@@ -13,8 +13,9 @@ export const startQuizAttempt = async (quizId: string, studentId: string) => {
        JOIN courses c ON c.id = m.course_id
        JOIN enrollments e ON e.course_id = c.id
        WHERE q.id = $1
-         AND e.student_id = $2
-         AND q.approval_status = 'approved'`,
+       AND e.student_id = $2
+       AND q.approval_status = 'approved'
+       FOR KEY SHARE OF q`,
       [quizId, studentId],
     );
 
@@ -308,4 +309,65 @@ export const getQuizAttemptResult = async (
   );
 
   return result.rows[0] ?? null;
+};
+
+export const deleteQuiz = async (quizId: string, instructorId: string) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Verify ownership and lock the quiz row.
+    const quizResult = await client.query(
+      `SELECT q.id
+       FROM quizzes q
+       JOIN modules m ON m.id = q.module_id
+       JOIN courses c ON c.id = m.course_id
+       WHERE q.id = $1
+         AND c.instructor_id = $2
+       FOR UPDATE OF q`,
+      [quizId, instructorId],
+    );
+
+    if (quizResult.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    // Preserve quizzes that have student attempts.
+    const attemptResult = await client.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM quiz_attempts
+         WHERE quiz_id = $1
+       ) AS has_attempts`,
+      [quizId],
+    );
+
+    if (attemptResult.rows[0].has_attempts) {
+      await client.query("ROLLBACK");
+
+      return {
+        deleted: false,
+        reason: "has_attempts",
+      };
+    }
+
+    await client.query(
+      `DELETE FROM quizzes
+       WHERE id = $1`,
+      [quizId],
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      deleted: true,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };

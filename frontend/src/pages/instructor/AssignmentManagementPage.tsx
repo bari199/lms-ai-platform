@@ -56,6 +56,7 @@ export default function AssignmentManagementPage() {
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [deletingAssignmentId, setDeletingAssignmentId] = useState("");
 
   async function loadAssignments() {
     if (!courseId) return;
@@ -74,6 +75,43 @@ export default function AssignmentManagementPage() {
     setSelectedAssignmentId((current) =>
       items.some((item) => item.id === current) ? current : "",
     );
+  }
+
+  async function handleDeleteAssignment(assignmentId: string) {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this assignment? This action cannot be undone.",
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setMessage("");
+    setDeletingAssignmentId(assignmentId);
+
+    try {
+      const response = await api.delete<ApiResponse<null>>(
+        `/assignments/${assignmentId}`,
+      );
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "Assignment deletion failed.");
+      }
+
+      setAssignments((current) =>
+        current.filter((item) => item.id !== assignmentId),
+      );
+
+      if (selectedAssignmentId === assignmentId) {
+        setSelectedAssignmentId("");
+        setSubmissions([]);
+      }
+
+      setMessage("Assignment deleted successfully.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to delete assignment."));
+    } finally {
+      setDeletingAssignmentId("");
+    }
   }
 
   async function loadSubmissions(assignmentId: string) {
@@ -379,17 +417,21 @@ export default function AssignmentManagementPage() {
           ) : (
             <div className="space-y-3">
               {assignments.map((assignment) => (
-                <button
+                <div
                   key={assignment.id}
-                  type="button"
-                  onClick={() => setSelectedAssignmentId(assignment.id)}
-                  className={`w-full rounded-lg border p-4 text-left ${
+                  className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4 ${
                     selectedAssignmentId === assignment.id
                       ? "border-primary bg-primary/5"
                       : ""
                   }`}
                 >
+                <button
+                  type="button"
+                  onClick={() => setSelectedAssignmentId(assignment.id)}
+                  className="min-w-0 flex-1 text-left"
+                >
                   <span className="block font-medium">{assignment.title}</span>
+
                   <span className="mt-1 block text-sm text-muted-foreground">
                     Deadline:{" "}
                     {assignment.due_date
@@ -397,6 +439,18 @@ export default function AssignmentManagementPage() {
                       : "No deadline"}
                   </span>
                 </button>
+
+                <button
+                  type="button"
+                  disabled={deletingAssignmentId === assignment.id || loading}
+                  onClick={() => void handleDeleteAssignment(assignment.id)}
+                  className="rounded-lg border border-destructive px-3 py-2 text-sm text-destructive disabled:opacity-50"
+                >
+                  {deletingAssignmentId === assignment.id
+                    ? "Deleting..."
+                    : "Delete"}
+                </button>
+                </div>
               ))}
             </div>
           )}

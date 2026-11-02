@@ -25,6 +25,7 @@ import {
   updateLectureProgress,
   getLectureProgress,
 } from "./progress.service.js";
+import { getInstructorCourseAnalytics } from "./analytics.service.js";
 import {
   createLectureBookmark,
   getLectureBookmarks,
@@ -1265,6 +1266,52 @@ export const downloadLectureResourceController = async (
     return res.status(500).json({
       success: false,
       message: "Failed to generate resource download URL",
+    });
+  }
+};
+
+export const getInstructorCourseAnalyticsController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const courseId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
+
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: "Course ID is required",
+      });
+    }
+
+    const analytics = await getInstructorCourseAnalytics(courseId, req.user.id);
+
+    if (!analytics) {
+      return res.status(404).json({
+        success: false,
+        message: "Course not found or you are not the owner",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: analytics,
+    });
+  } catch (error) {
+    console.error("Instructor course analytics error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch instructor course analytics",
     });
   }
 };

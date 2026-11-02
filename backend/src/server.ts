@@ -1,7 +1,10 @@
 import express from "express";
 import dotenv from "dotenv";
+import { createServer } from "node:http";
+import { initializeSocket, shutdownSocket } from "./config/socket.js";
 import { checkDatabaseConnection, pool } from "./config/db.js";
 import { checkRedisConnection, redis } from "./config/redis.js";
+
 import authRoutes from "./modules/auth/auth.routes.js";
 import courseRoutes from "./modules/courses/courses.routes.js";
 import enrollmentRoutes from "./modules/courses/enrollment.routes.js";
@@ -15,7 +18,14 @@ import aiRoutes from "./modules/ai/ai.routes.js";
 import adminRoutes from "./modules/admin/admin.routes.js";
 import paymentRoutes from "./modules/payments/payments.routes.js";
 import { handleStripeWebhook } from "./modules/payments/payments.webhook.js";
+import discussionsRoutes from "./modules/discussions/discussions.routes.js";
+import notificationsRoutes from "./modules/notifications/notifications.routes.js";
+import announcementsRoutes from "./modules/announcements/announcements.routes.js";
+
 import { recommendationWorker } from "./jobs/recommendation.worker.js";
+import { notificationWorker } from "./jobs/notification.worker.js";
+import { notificationQueue } from "./jobs/notification.queue.js";
+
 import cookieParser from "cookie-parser";
 import cors from "cors";
 
@@ -34,6 +44,7 @@ app.use(
 
 app.use(cookieParser());
 
+// Stripe webhook must be registered before express.json()
 app.post(
   "/api/v1/payments/webhook",
   express.raw({ type: "application/json" }),
@@ -61,7 +72,10 @@ app.use("/api/v1/assignments", assignmentsRoutes);
 app.use("/api/v1/quizzes", quizRoutes);
 app.use("/api/v1/gamification", gamificationRoutes);
 app.use("/api/v1/ai", aiRoutes);
+app.use("/api/v1/discussions", discussionsRoutes);
 app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/v1/notifications", notificationsRoutes);
+app.use("/api/v1/courses/:courseId/announcements", announcementsRoutes);
 
 const PORT = Number(process.env.PORT) || 5000;
 
@@ -74,9 +88,19 @@ const startServer = async (): Promise<void> => {
     await checkDatabaseConnection();
     await checkRedisConnection();
 
-    server = app.listen(PORT, () => {
+    await notificationWorker.waitUntilReady();
+    await notificationQueue.waitUntilReady();
+
+    console.log("Notification worker ready");
+
+    const httpServer = createServer(app);
+
+    await initializeSocket(httpServer);
+
+    server = httpServer.listen(PORT, () => {
       console.log(`LMS-AI backend running on port ${PORT}`);
       console.log("Recommendation worker imported");
+      console.log("Socket.IO server ready");
     });
 
     const shutdown = async (signal: string): Promise<void> => {
@@ -89,6 +113,7 @@ const startServer = async (): Promise<void> => {
       console.log(`${signal} received. Shutting down...`);
 
       try {
+        // Stop accepting new HTTP requests
         if (server) {
           await new Promise<void>((resolve, reject) => {
             server!.close((error) => {
@@ -101,9 +126,20 @@ const startServer = async (): Promise<void> => {
           });
         }
 
+        // Close Socket.IO
+        await shutdownSocket();
+
+        // Close notification worker and queue
+        await notificationWorker.close();
+        await notificationQueue.close();
+
+        // Close recommendation worker
         await recommendationWorker.close();
+
+        // Close database connection pool
         await pool.end();
 
+        // Close shared Redis connection
         if (redis.status !== "end") {
           await redis.quit();
         }
@@ -127,9 +163,30 @@ const startServer = async (): Promise<void> => {
     console.error("Backend startup failed:", error);
 
     try {
-      await recommendationWorker.close();
+      await shutdownSocket();
+    } catch (socketError) {
+      console.error("Socket cleanup failed:", socketError);
+    }
+
+    try {
+      await notificationWorker.close();
     } catch (workerError) {
-      console.error("Worker cleanup failed:", workerError);
+      console.error("Notification worker cleanup failed:", workerError);
+    }
+
+    try {
+      await notificationQueue.close();
+    } catch (queueError) {
+      console.error("Notification queue cleanup failed:", queueError);
+    }
+
+    try {
+      await recommendationWorker.close();
+    } catch (recommendationError) {
+      console.error(
+        "Recommendation worker cleanup failed:",
+        recommendationError,
+      );
     }
 
     try {

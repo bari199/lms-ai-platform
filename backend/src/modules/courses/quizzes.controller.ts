@@ -6,6 +6,8 @@ import {
   getQuizForStudent,
   submitQuizAttempt,
   getQuizAttemptResult,
+  deleteQuiz,
+  
 } from "./quizzes.service.js";
 import { awardBadge } from "../gamification/badges.service.js";
 import { recommendationQueue } from "../../jobs/recommendation.queue.js";
@@ -589,6 +591,63 @@ export const getStudentCourseQuizzesController = async (
     res.status(500).json({
       success: false,
       message: "Failed to retrieve course quizzes",
+    });
+  }
+};
+
+export const deleteQuizController = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  const instructorId = authenticatedReq.user?.id;
+  const quizId = req.params.id;
+
+  if (!instructorId) {
+    res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+    return;
+  }
+
+  if (typeof quizId !== "string" || !quizId) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid quiz ID",
+    });
+    return;
+  }
+
+  try {
+    const result = await deleteQuiz(quizId, instructorId);
+
+    if (!result) {
+      res.status(404).json({
+        success: false,
+        message: "Quiz not found or not owned by this instructor",
+      });
+      return;
+    }
+
+    if (!result.deleted) {
+      res.status(409).json({
+        success: false,
+        message: "Quiz cannot be deleted because student attempts exist",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Quiz deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete quiz failed:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete quiz",
     });
   }
 };
