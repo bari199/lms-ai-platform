@@ -13,8 +13,12 @@ export const startQuizAttempt = async (quizId: string, studentId: string) => {
        JOIN courses c ON c.id = m.course_id
        JOIN enrollments e ON e.course_id = c.id
        WHERE q.id = $1
-       AND e.student_id = $2
-       AND q.approval_status = 'approved'
+         AND e.student_id = $2
+         AND q.approval_status = 'approved'
+         AND (
+           COALESCE(q.is_adaptive_practice, FALSE) = FALSE
+           OR q.created_for_student_id = $2
+         )
        FOR KEY SHARE OF q`,
       [quizId, studentId],
     );
@@ -42,13 +46,21 @@ export const startQuizAttempt = async (quizId: string, studentId: string) => {
   }
 };
 
-export const getQuizForStudent = async (quizId: string) => {
+export const getQuizForStudent = async (quizId: string, studentId: string) => {
   const quizResult = await pool.query(
-    `SELECT id, title, module_id
-     FROM quizzes
-     WHERE id = $1
-      AND approval_status = 'approved'`,
-    [quizId],
+    `SELECT q.id, q.title, q.module_id
+     FROM quizzes q
+     JOIN modules m ON m.id = q.module_id
+     JOIN courses c ON c.id = m.course_id
+     JOIN enrollments e ON e.course_id = c.id
+     WHERE q.id = $1
+       AND e.student_id = $2
+       AND q.approval_status = 'approved'
+       AND (
+         COALESCE(q.is_adaptive_practice, FALSE) = FALSE
+         OR q.created_for_student_id = $2
+       )`,
+    [quizId, studentId],
   );
 
   if (quizResult.rowCount !== 1) {
@@ -317,7 +329,6 @@ export const deleteQuiz = async (quizId: string, instructorId: string) => {
   try {
     await client.query("BEGIN");
 
-    // Verify ownership and lock the quiz row.
     const quizResult = await client.query(
       `SELECT q.id
        FROM quizzes q
@@ -325,6 +336,7 @@ export const deleteQuiz = async (quizId: string, instructorId: string) => {
        JOIN courses c ON c.id = m.course_id
        WHERE q.id = $1
          AND c.instructor_id = $2
+         AND COALESCE(q.is_adaptive_practice, FALSE) = FALSE
        FOR UPDATE OF q`,
       [quizId, instructorId],
     );
@@ -334,7 +346,6 @@ export const deleteQuiz = async (quizId: string, instructorId: string) => {
       return null;
     }
 
-    // Preserve quizzes that have student attempts.
     const attemptResult = await client.query(
       `SELECT EXISTS (
          SELECT 1

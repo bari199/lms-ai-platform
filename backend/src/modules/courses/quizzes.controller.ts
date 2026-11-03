@@ -7,7 +7,6 @@ import {
   submitQuizAttempt,
   getQuizAttemptResult,
   deleteQuiz,
-  
 } from "./quizzes.service.js";
 import { awardBadge } from "../gamification/badges.service.js";
 import { recommendationQueue } from "../../jobs/recommendation.queue.js";
@@ -217,9 +216,19 @@ export const getQuizForStudentController = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  const studentId = authenticatedReq.user?.id;
   const quizId = req.params.id;
 
-  if (typeof quizId !== "string") {
+  if (!studentId) {
+    res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+    return;
+  }
+
+  if (typeof quizId !== "string" || !quizId) {
     res.status(400).json({
       success: false,
       message: "Invalid quiz ID",
@@ -228,12 +237,12 @@ export const getQuizForStudentController = async (
   }
 
   try {
-    const quiz = await getQuizForStudent(quizId);
+    const quiz = await getQuizForStudent(quizId, studentId);
 
     if (!quiz) {
       res.status(404).json({
         success: false,
-        message: "Quiz not found",
+        message: "Quiz not found or access denied",
       });
       return;
     }
@@ -447,6 +456,7 @@ export const getInstructorQuizzesController = async (
        JOIN modules m ON m.id = q.module_id
        JOIN courses c ON c.id = m.course_id
        WHERE c.instructor_id = $1
+         AND COALESCE(q.is_adaptive_practice, FALSE) = FALSE
        ORDER BY q.id DESC`,
       [instructorId],
     );
@@ -510,6 +520,7 @@ export const updateQuizApprovalController = async (
        WHERE q.module_id = m.id
          AND q.id = $1
          AND c.instructor_id = $2
+         AND COALESCE(q.is_adaptive_practice, FALSE) = FALSE
        RETURNING q.id, q.title, q.approval_status`,
       [quizId, instructorId, approval_status],
     );
@@ -577,6 +588,7 @@ export const getStudentCourseQuizzesController = async (
          AND e.student_id = $2
          AND c.status = 'approved'
          AND q.approval_status = 'approved'
+         AND COALESCE(q.is_adaptive_practice, FALSE) = FALSE
        ORDER BY q.id DESC`,
       [courseId, studentId],
     );
